@@ -13,6 +13,7 @@ from services.shopping import (
     add_shopping_item,
     clear_shopping_list,
     get_shopping_items,
+    remove_shopping_items_by_numbers,
     remove_shopping_item_by_number,
 )
 from state.shopping_session import (
@@ -189,8 +190,9 @@ async def shopping_text_step(message: types.Message) -> None:
         return
 
     if session.state == "await_remove_number":
-        number_raw = message.text.strip()
-        if not number_raw.isdigit():
+        raw_numbers = [part.strip() for part in message.text.split(",")]
+        number_tokens = [token for token in raw_numbers if token]
+        if not number_tokens or not all(token.isdigit() for token in number_tokens):
             await message.answer(
                 "Неверный номер, попробуйте снова",
                 reply_markup=build_shopping_cancel_keyboard(session.session_id),
@@ -198,15 +200,27 @@ async def shopping_text_step(message: types.Message) -> None:
             return
 
         try:
-            removed_item = remove_shopping_item_by_number(int(number_raw))
-            logging.info(
-                "shopping_remove user_id=%s username=%s number=%s item=%s status=success",
-                user_id,
-                message.from_user.username if message.from_user else None,
-                number_raw,
-                removed_item,
-            )
-            await message.answer(f"Удалено: {removed_item}")
+            numbers = [int(token) for token in number_tokens]
+            if len(numbers) == 1:
+                removed_item = remove_shopping_item_by_number(numbers[0])
+                logging.info(
+                    "shopping_remove user_id=%s username=%s numbers=%s items=%s status=success",
+                    user_id,
+                    message.from_user.username if message.from_user else None,
+                    ",".join(number_tokens),
+                    removed_item,
+                )
+                await message.answer(f"Удалено: {removed_item}")
+            else:
+                removed_items = remove_shopping_items_by_numbers(numbers)
+                logging.info(
+                    "shopping_remove user_id=%s username=%s numbers=%s items=%s status=success",
+                    user_id,
+                    message.from_user.username if message.from_user else None,
+                    ",".join(number_tokens),
+                    ",".join(removed_items),
+                )
+                await message.answer(f"Удалено ({len(removed_items)}): {', '.join(removed_items)}")
         except ValueError:
             await message.answer(
                 "Неверный номер, попробуйте снова",
@@ -290,6 +304,7 @@ async def shopping_action_handler(callback: types.CallbackQuery) -> None:
         await _safe_delete_prompt(callback.bot, session.list_chat_id, session.list_message_id)
         await _safe_delete_prompt(callback.bot, session.step_chat_id, session.step_message_id)
         lines = ["Введите номер позиции для удаления:"]
+        lines.append("Можно указать несколько номеров через запятую.")
         for idx, item in enumerate(items, start=1):
             lines.append(f"{idx}. {item}")
         prompt = await callback.message.answer(

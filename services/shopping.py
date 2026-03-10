@@ -77,7 +77,34 @@ def remove_shopping_item_by_number(number: int) -> str:
     return item
 
 
+def remove_shopping_items_by_numbers(numbers: list[int]) -> list[str]:
+    if not numbers:
+        raise ValueError("Неверный номер, попробуйте снова")
+
+    entries = get_shopping_entries()
+    if not entries:
+        raise ValueError("Список пуст, удалять нечего")
+
+    unique_numbers: list[int] = []
+    seen: set[int] = set()
+    for number in numbers:
+        if number in seen:
+            continue
+        seen.add(number)
+        unique_numbers.append(number)
+
+    for number in unique_numbers:
+        if number < 1 or number > len(entries):
+            raise ValueError("Неверный номер, попробуйте снова")
+
+    to_delete = [(entries[number - 1][0], entries[number - 1][1]) for number in unique_numbers]
+    worksheet = _get_worksheet()
+    for row_idx, _ in sorted(to_delete, key=lambda item: item[0], reverse=True):
+        worksheet.delete_rows(row_idx)
+
+    return [item for _, item in to_delete]
+
+
 def clear_shopping_list() -> None:
     worksheet = _get_worksheet()
     worksheet.batch_clear(["A:A"])
-

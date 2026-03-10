@@ -4,6 +4,7 @@ EXPENSES_SHEET_NAME = "Траты"
 SHOPPING_SHEET_NAME = "Список покупок Продукты"
 
 MENU_VIEW_LIMITS_TEXT = "Посмотреть лимиты"
+MENU_VIEW_EXPENSES_TEXT = "Посмотреть траты"
 MENU_EXPENSES_TEXT = "Добавить трату"
 MENU_SHOPPING_TEXT = "Список Покупок"
 MENU_LIMITS_CALLBACK = "main:limits"

@@ -14,7 +14,7 @@ from keyboards.limits import build_category_actions_keyboard
 from keyboards.main import build_main_menu
 from services.access import check_access_callback, check_access_message, is_allowed_username
 from services.budget import get_budget_limits, get_category_details, get_subcategories_for_category
-from services.expenses import parse_amount, write_expense
+from services.expenses import parse_amount_with_optional_comment, write_expense
 from state.expense_session import (
     create_session,
     get_active_session,
@@ -155,7 +155,7 @@ async def _finalize_expense(
     user_id: int,
     username: str | None,
     message_target: types.Message,
-    comment: str = "",
+    comment: str | None = None,
 ) -> None:
     session = get_active_session(user_id)
     if session is None or session.state != "await_confirm":
@@ -180,6 +180,7 @@ async def _finalize_expense(
     category = session.category or ""
     subcategory = session.subcategory or ""
     amount = session.amount or ""
+    final_comment = (session.comment or "") if comment is None else comment
     actor_username = f"@{username}" if username else ""
 
     try:
@@ -188,7 +189,7 @@ async def _finalize_expense(
             category=category,
             subcategory=subcategory,
             amount=amount,
-            comment=comment,
+            comment=final_comment,
         )
     except Exception:
         logging.exception("Ошибка записи траты в Google Sheets")
@@ -205,8 +206,8 @@ async def _finalize_expense(
         f"Подкатегория: {subcategory}",
         f"Сумма: {amount}",
     ]
-    if comment:
-        summary.append(f"Комментарий: {comment}")
+    if final_comment:
+        summary.append(f"Комментарий: {final_comment}")
 
     logging.info(
         "expense_added user_id=%s username=%s category=%s subcategory=%s amount=%s",
@@ -258,7 +259,7 @@ async def expense_text_step(message: types.Message) -> None:
 
     if session.state == "enter_amount":
         try:
-            normalized_amount = parse_amount(message.text)
+            normalized_amount, inline_comment = parse_amount_with_optional_comment(message.text)
         except ValueError as exc:
             await message.answer(
                 f"Некорректная сумма: {exc}. Введите сумму еще раз.",
@@ -267,13 +268,23 @@ async def expense_text_step(message: types.Message) -> None:
             return
 
         session.amount = normalized_amount
+        session.comment = inline_comment or None
         session.state = "await_confirm"
         touch_session(session)
 
         await _safe_delete_prompt(message.bot, session.prompt_chat_id, session.prompt_message_id)
+        confirm_lines = [
+            "Добавить трату:",
+            f"<b>{session.category}, {session.subcategory}, {session.amount}</b>",
+        ]
+        if session.comment:
+            confirm_lines.append(f"Комментарий: <b>{session.comment}</b>")
+            confirm_lines.append("Можно изменить комментарий сообщением или Сохранить")
+        else:
+            confirm_lines.append("Можно добавить комментарий сообщением или Сохранить")
+
         prompt = await message.answer(
-            f"Добавить трату: {session.category}, {session.subcategory}, {session.amount}?\n"
-            "Можно добавить комментарий",
+            "\n".join(confirm_lines),
             reply_markup=build_confirm_keyboard(session.session_id),
         )
         session.prompt_chat_id = prompt.chat.id
@@ -411,7 +422,7 @@ async def expense_subcategory_handler(callback: types.CallbackQuery) -> None:
         await callback.answer("Ошибка сообщения.", show_alert=True)
         return
     prompt = await callback.message.answer(
-        f"Категория: {session.category}\nПодкатегория: {session.subcategory}\nВведите сумму",
+        f"Категория: {session.category}\nПодкатегория: {session.subcategory}\nВведите сумму (можно сразу с комментарием)",
         reply_markup=build_cancel_keyboard(session.session_id),
     )
     session.prompt_chat_id = prompt.chat.id
@@ -443,5 +454,5 @@ async def expense_confirm_handler(callback: types.CallbackQuery) -> None:
             user_id=user_id,
             username=callback.from_user.username if callback.from_user else None,
             message_target=callback.message,
-            comment="",
+            comment=None,
         )

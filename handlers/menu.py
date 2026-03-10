@@ -9,11 +9,12 @@ from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from aiogram import Router, types
 from aiogram.filters import CommandStart
 
-from constants import MENU_LIMITS_CALLBACK, MENU_VIEW_LIMITS_TEXT
+from constants import MENU_LIMITS_CALLBACK, MENU_VIEW_EXPENSES_TEXT, MENU_VIEW_LIMITS_TEXT
 from keyboards.limits import build_categories_keyboard, build_category_actions_keyboard
 from keyboards.main import build_main_menu
 from services.access import check_access_callback, check_access_message
 from services.budget import get_budget_limits, get_category_details, get_month_totals
+from services.expenses import get_recent_expenses
 
 router = Router()
 _restart_in_progress = False
@@ -89,6 +90,35 @@ async def _send_limits(target_message: types.Message) -> None:
     await target_message.answer(text, reply_markup=build_categories_keyboard(categories))
 
 
+async def _send_recent_expenses(target_message: types.Message, limit: int = 5) -> None:
+    try:
+        recent = get_recent_expenses(limit=limit)
+    except Exception:
+        logging.exception("Ошибка чтения последних трат из Google Sheets")
+        await target_message.answer("Не удалось загрузить траты. Попробуйте позже.")
+        return
+
+    if not recent:
+        await target_message.answer("Траты не найдены.")
+        return
+
+    lines = [f"Последние {len(recent)} трат:"]
+    for idx, (date_value, username_value, category_value, subcategory_value, amount_value, comment_value) in enumerate(
+        reversed(recent),
+        start=1,
+    ):
+        lines.append(f"{idx}. <b>{date_value}</b> | <b>{amount_value}</b> | <b>{subcategory_value}</b>")
+        details = [f"Пользователь: {username_value}"]
+        if category_value:
+            details.append(f"Категория: {category_value}")
+        lines.append(" | ".join(details))
+        if comment_value:
+            lines.append(f"Комментарий: {comment_value}")
+        lines.append("")
+
+    await target_message.answer("\n".join(lines).strip())
+
+
 async def _restart_process_after_delay(delay_seconds: int = 5) -> None:
     await asyncio.sleep(delay_seconds)
     os.execv(sys.executable, [sys.executable, *sys.argv])
@@ -108,6 +138,15 @@ async def view_limits_handler(message: types.Message) -> None:
     if not await check_access_message(message):
         return
     await _send_limits(message)
+
+
+@router.message(
+    lambda message: bool(message.text) and message.text.endswith(MENU_VIEW_EXPENSES_TEXT)
+)
+async def view_recent_expenses_handler(message: types.Message) -> None:
+    if not await check_access_message(message):
+        return
+    await _send_recent_expenses(message, limit=5)
 
 
 @router.message(lambda message: bool(message.text) and message.text.strip().lower() == "перезапуск")
