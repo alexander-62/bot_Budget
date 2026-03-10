@@ -42,6 +42,7 @@ ENV/
 Thumbs.db
 
 # Local secrets/runtime
+# Added for safer first PR workflow
 credentials.json
 .bot.pid
 bot.log
