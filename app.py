@@ -1,11 +1,13 @@
 ﻿import asyncio
 import logging
+from pathlib import Path
 
+from aiohttp import web
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 
-from config import BOT_TOKEN
+from config import BOT_TOKEN, WEBAPP_HOST, WEBAPP_PORT
 from handlers.expenses import router as expenses_router
 from handlers.menu import router as menu_router
 from handlers.shopping import router as shopping_router
@@ -32,6 +34,35 @@ def create_dispatcher() -> Dispatcher:
     return dp
 
 
+def create_web_app() -> web.Application:
+    base_dir = Path(__file__).resolve().parent
+    webapp_dir = base_dir / "webapp"
+    static_dir = webapp_dir / "static"
+
+    app = web.Application()
+
+    async def webapp_index(_: web.Request) -> web.FileResponse:
+        return web.FileResponse(webapp_dir / "index.html")
+
+    async def webapp_health(_: web.Request) -> web.Response:
+        return web.json_response({"ok": True})
+
+    app.router.add_get("/webapp", webapp_index)
+    app.router.add_get("/webapp/health", webapp_health)
+    app.router.add_static("/webapp/static/", path=static_dir)
+    return app
+
+
+async def start_web_server() -> web.AppRunner:
+    app = create_web_app()
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, host=WEBAPP_HOST, port=WEBAPP_PORT)
+    await site.start()
+    logging.info("Web App server started at http://%s:%s/webapp", WEBAPP_HOST, WEBAPP_PORT)
+    return runner
+
+
 async def notify_startup(bot: Bot) -> None:
     try:
         chat_ids = get_allowed_chat_ids()
@@ -56,11 +87,15 @@ async def notify_startup(bot: Bot) -> None:
 
 async def main() -> None:
     setup_logging()
+    web_runner = await start_web_server()
     bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
     dp = create_dispatcher()
     logging.info("Бот запущен...")
-    await notify_startup(bot)
-    await dp.start_polling(bot)
+    try:
+        await notify_startup(bot)
+        await dp.start_polling(bot)
+    finally:
+        await web_runner.cleanup()
 
 
 if __name__ == "__main__":
