@@ -8,5 +8,5 @@ if exist ".venv\Scripts\python.exe" (
 ) else (
     python manage_bot.py start --foreground
 )
-
+pause
 endlocal
