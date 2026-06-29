@@ -13,7 +13,9 @@ This is an existing Python Telegram budget bot backed by Google Sheets.
 - Active runtime files are the normal module names, not backup copies such as `handlers/expenses (2).py`, `services/expenses (2).py`, or `*.bak_test`.
 - Keep Telegram routing in `handlers/`, keyboard construction in `keyboards/`, in-memory flow state in `state/`, and domain/Sheets logic in `services/`.
 - Keep Google Sheets access centralized through `services/google_sheets.py`.
-- Be careful with Russian user-facing strings; preserve the existing file encoding behavior when editing.
+- The bot works with Cyrillic Russian user-facing text. Always treat source files, logs, exports, generated docs, and command output as UTF-8 unless there is direct evidence otherwise.
+- Be especially careful in PowerShell: console output may display UTF-8 text as mojibake when the terminal code page or output encoding is wrong. Do not rewrite, "fix", or transliterate Russian text based only on garbled PowerShell display.
+- When reading or writing files from scripts or shell commands, specify UTF-8 explicitly where the tool supports it, for example `-Encoding UTF8` in PowerShell or `encoding="utf-8"` in Python. Avoid commands that silently use a legacy Windows code page for Cyrillic content.
 
 ## Current Roadmap
 
