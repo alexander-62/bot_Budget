@@ -4,6 +4,7 @@ import os
 import subprocess
 import sys
 from calendar import monthrange
+from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from pathlib import Path
@@ -26,6 +27,15 @@ BASE_DIR = Path(__file__).resolve().parents[1]
 
 router = Router()
 _restart_in_progress = False
+
+
+@dataclass(frozen=True)
+class GitPullResult:
+    ok: bool
+    before_sha: str = ""
+    after_sha: str = ""
+    user_message: str = ""
+    log_message: str = ""
 
 
 def _parse_sheet_number(value: str) -> Decimal:
@@ -138,6 +148,46 @@ async def _restart_process_after_delay(delay_seconds: int = 5) -> None:
 
 
 def _run_git_pull() -> tuple[bool, str, str]:
+    git_check = subprocess.run(
+        ["git", "--version"],
+        cwd=BASE_DIR,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+    )
+    if git_check.returncode != 0:
+        return GitPullResult(
+            ok=False,
+            user_message="Не удалось обновиться: Git не найден на машине.",
+            log_message=(git_check.stderr or git_check.stdout).strip(),
+        )
+
+    branch = subprocess.run(
+        ["git", "branch", "--show-current"],
+        cwd=BASE_DIR,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+    )
+    if branch.returncode != 0:
+        return GitPullResult(
+            ok=False,
+            user_message="Не удалось обновиться: не удалось определить текущую ветку Git.",
+            log_message=(branch.stderr or branch.stdout).strip(),
+        )
+
+    current_branch = branch.stdout.strip()
+    if current_branch.lower() != "main":
+        return GitPullResult(
+            ok=False,
+            user_message=f"Не удалось обновиться: бот запущен не из ветки main, а из {current_branch or 'unknown'}.",
+            log_message=f"Unexpected branch for remote restart: {current_branch!r}",
+        )
+
     before = subprocess.run(
         ["git", "rev-parse", "HEAD"],
         cwd=BASE_DIR,
@@ -148,7 +198,11 @@ def _run_git_pull() -> tuple[bool, str, str]:
         check=False,
     )
     if before.returncode != 0:
-        return False, "", before.stderr.strip() or before.stdout.strip()
+        return GitPullResult(
+            ok=False,
+            user_message="Не удалось обновиться: не удалось прочитать текущий commit.",
+            log_message=before.stderr.strip() or before.stdout.strip(),
+        )
 
     pull = subprocess.run(
         ["git", "pull", "--ff-only", "origin", "main"],
@@ -161,7 +215,20 @@ def _run_git_pull() -> tuple[bool, str, str]:
     )
     if pull.returncode != 0:
         message = (pull.stderr or pull.stdout).strip()
-        return False, "", message
+        lowered = message.lower()
+        if "not possible to fast-forward" in lowered or "fast-forward" in lowered:
+            user_message = "Не удалось обновиться: локальная ветка main не fast-forward к origin/main."
+        elif "local changes" in lowered or "would be overwritten" in lowered:
+            user_message = "Не удалось обновиться: есть локальные изменения в репозитории."
+        elif "could not resolve host" in lowered or "failed to connect" in lowered:
+            user_message = "Не удалось обновиться: нет соединения с GitHub."
+        else:
+            user_message = "Не удалось обновиться: git pull завершился ошибкой."
+        return GitPullResult(
+            ok=False,
+            user_message=user_message,
+            log_message=message,
+        )
 
     after = subprocess.run(
         ["git", "rev-parse", "HEAD"],
@@ -173,9 +240,17 @@ def _run_git_pull() -> tuple[bool, str, str]:
         check=False,
     )
     if after.returncode != 0:
-        return False, "", after.stderr.strip() or after.stdout.strip()
+        return GitPullResult(
+            ok=False,
+            user_message="Обновление скачано, но не удалось прочитать новый commit.",
+            log_message=after.stderr.strip() or after.stdout.strip(),
+        )
 
-    return True, before.stdout.strip(), after.stdout.strip()
+    return GitPullResult(
+        ok=True,
+        before_sha=before.stdout.strip(),
+        after_sha=after.stdout.strip(),
+    )
 
 
 @router.message(CommandStart())
@@ -219,19 +294,20 @@ async def restart_handler(message: types.Message) -> None:
     await message.answer("Проверяю обновления...")
 
     try:
-        updated, before_sha, after_sha = await asyncio.to_thread(_run_git_pull)
+        pull_result = await asyncio.to_thread(_run_git_pull)
     except Exception:
         logging.exception("Ошибка обновления из GitHub")
         _restart_in_progress = False
         await message.answer("Не удалось обновиться. Попробуйте позже.")
         return
 
-    if not updated:
+    if not pull_result.ok:
         _restart_in_progress = False
-        await message.answer("Не удалось обновиться. Попробуйте позже.")
+        logging.warning("Удаленный перезапуск: обновление не выполнено: %s", pull_result.log_message)
+        await message.answer(pull_result.user_message or "Не удалось обновиться. Попробуйте позже.")
         return
 
-    if before_sha == after_sha:
+    if pull_result.before_sha == pull_result.after_sha:
         await message.answer(f"Обновление не найдено. Перезапускаюсь. Версия: {__version__}")
     else:
         await message.answer(f"Обновление установлено. Перезапускаюсь. Версия: {__version__}")
