@@ -8,6 +8,7 @@ from keyboards.shopping import (
     build_shopping_cancel_keyboard,
     build_shopping_clear_confirm_keyboard,
 )
+from services.async_tools import run_blocking
 from services.access import check_access_callback, check_access_message
 from services.shopping import (
     add_shopping_items,
@@ -56,7 +57,7 @@ async def _show_shopping_list(message: types.Message, user_id: int) -> None:
         await _safe_delete_session_messages(message.bot, session_old)
 
     try:
-        items = get_shopping_items()
+        items = await run_blocking(get_shopping_items)
     except Exception:
         logging.exception("Ошибка чтения списка покупок")
         await message.answer("Не удалось обновить список покупок. Попробуйте позже.")
@@ -77,7 +78,7 @@ async def _show_shopping_list_callback(callback: types.CallbackQuery, user_id: i
         await _safe_delete_session_messages(callback.bot, session_old)
 
     try:
-        items = get_shopping_items()
+        items = await run_blocking(get_shopping_items)
     except Exception:
         logging.exception("Ошибка чтения списка покупок")
         await callback.answer("Не удалось обновить список покупок. Попробуйте позже.", show_alert=True)
@@ -149,7 +150,7 @@ async def shopping_text_step(message: types.Message) -> None:
             if not items_to_add:
                 raise ValueError("Пустой ввод не допускается")
 
-            added_items, existing_items = add_shopping_items(items_to_add)
+            added_items, existing_items = await run_blocking(add_shopping_items, items_to_add)
             for item in added_items:
                 logging.info(
                     "shopping_add user_id=%s username=%s item=%s status=success",
@@ -196,7 +197,7 @@ async def shopping_text_step(message: types.Message) -> None:
         try:
             numbers = [int(token) for token in number_tokens]
             if len(numbers) == 1:
-                removed_item = remove_shopping_item_by_number(numbers[0])
+                removed_item = await run_blocking(remove_shopping_item_by_number, numbers[0])
                 logging.info(
                     "shopping_remove user_id=%s username=%s numbers=%s items=%s status=success",
                     user_id,
@@ -206,7 +207,7 @@ async def shopping_text_step(message: types.Message) -> None:
                 )
                 await message.answer(f"Удалено: {removed_item}")
             else:
-                removed_items = remove_shopping_items_by_numbers(numbers)
+                removed_items = await run_blocking(remove_shopping_items_by_numbers, numbers)
                 logging.info(
                     "shopping_remove user_id=%s username=%s numbers=%s items=%s status=success",
                     user_id,
@@ -282,7 +283,7 @@ async def shopping_action_handler(callback: types.CallbackQuery) -> None:
 
     if action == "remove":
         try:
-            items = get_shopping_items()
+            items = await run_blocking(get_shopping_items)
         except Exception:
             logging.exception("Ошибка чтения списка покупок")
             await callback.answer("Не удалось обновить список покупок. Попробуйте позже.", show_alert=True)
@@ -350,7 +351,7 @@ async def shopping_clear_yes_handler(callback: types.CallbackQuery) -> None:
         return
 
     try:
-        clear_shopping_list()
+        await run_blocking(clear_shopping_list)
         logging.info(
             "shopping_clear user_id=%s username=%s status=success",
             user_id,

@@ -47,3 +47,7 @@ credentials.json
 .bot.pid
 bot.log
 .editorconfig
+*.bak_test
+*_write_test.tmp
+* (2).py
+* (2).md

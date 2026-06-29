@@ -1,9 +1,12 @@
 import argparse
 import os
 import signal
+import socket
 import subprocess
 import sys
 from pathlib import Path
+
+from config import WEBAPP_HOST, WEBAPP_PORT
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -37,10 +40,25 @@ def _is_running(pid: int) -> bool:
         return False
 
 
+def _is_webapp_port_busy() -> bool:
+    try:
+        with socket.create_connection((WEBAPP_HOST, WEBAPP_PORT), timeout=0.3):
+            return True
+    except OSError:
+        return False
+
+
 def start_bot(background: bool = True) -> None:
     pid = _read_pid()
     if pid and _is_running(pid):
         print(f"Bot is already running (PID {pid}).")
+        return
+
+    if _is_webapp_port_busy():
+        print(
+            f"Web App port {WEBAPP_HOST}:{WEBAPP_PORT} is already in use. "
+            "Stop old bot process or free port before start."
+        )
         return
 
     if background:
@@ -90,13 +108,25 @@ def stop_bot() -> None:
 def status_bot() -> None:
     pid = _read_pid()
     if not pid:
-        print("Bot is not running in background (no PID file).")
+        if _is_webapp_port_busy():
+            print(
+                f"Bot PID file missing, but port {WEBAPP_HOST}:{WEBAPP_PORT} is busy. "
+                "Another process may still be running."
+            )
+        else:
+            print("Bot is not running in background (no PID file).")
         return
 
     if _is_running(pid):
         print(f"Bot is running in background (PID {pid}).")
     else:
-        print("PID file exists, but process is not active.")
+        if _is_webapp_port_busy():
+            print(
+                "PID file exists, bot process is not active, but Web App port is busy. "
+                "Likely stale PID plus another process."
+            )
+        else:
+            print("PID file exists, but process is not active.")
 
 
 def restart_bot() -> None:

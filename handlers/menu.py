@@ -15,6 +15,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from constants import MENU_LIMITS_CALLBACK, MENU_VIEW_EXPENSES_TEXT, MENU_VIEW_LIMITS_TEXT
 from keyboards.limits import build_categories_keyboard, build_category_actions_keyboard
 from keyboards.main import build_main_menu
+from services.async_tools import run_blocking
 from services.access import check_access_callback, check_access_message
 from services.budget import get_budget_limits, get_category_details, get_month_totals
 from services.expenses import get_recent_expenses
@@ -61,8 +62,8 @@ def _format_remaining_with_alert(value: str) -> str:
 
 async def _send_limits(target_message: types.Message) -> None:
     try:
-        total_limit, categories = get_budget_limits()
-        month_limit, month_spent, month_remaining = get_month_totals()
+        total_limit, categories = await run_blocking(get_budget_limits)
+        month_limit, month_spent, month_remaining = await run_blocking(get_month_totals)
     except Exception:
         logging.exception("Ошибка чтения лимитов из Google Sheets")
         await target_message.answer("Не удалось загрузить лимиты. Попробуйте позже.")
@@ -99,7 +100,7 @@ async def _send_limits(target_message: types.Message) -> None:
 
 async def _send_recent_expenses(target_message: types.Message, limit: int = 5) -> None:
     try:
-        recent = get_recent_expenses(limit=limit)
+        recent = await run_blocking(get_recent_expenses, limit)
     except Exception:
         logging.exception("Ошибка чтения последних трат из Google Sheets")
         await target_message.answer("Не удалось загрузить траты. Попробуйте позже.")
@@ -259,7 +260,7 @@ async def category_click_handler(callback: types.CallbackQuery) -> None:
     category_idx = int(category_idx_raw)
 
     try:
-        _, categories = get_budget_limits()
+        _, categories = await run_blocking(get_budget_limits)
         if category_idx < 0 or category_idx >= len(categories):
             await callback.answer("Категория больше не актуальна. Обновите меню.", show_alert=True)
             return
@@ -271,7 +272,7 @@ async def category_click_handler(callback: types.CallbackQuery) -> None:
             category_spent,
             category_remaining,
             subcategories,
-        ) = get_category_details(category_name)
+        ) = await run_blocking(get_category_details, category_name)
     except Exception:
         logging.exception("Ошибка чтения категории из Google Sheets")
         await callback.answer("Не удалось загрузить категорию.", show_alert=True)

@@ -11,7 +11,9 @@ from config import BOT_TOKEN, WEBAPP_HOST, WEBAPP_PORT
 from handlers.expenses import router as expenses_router
 from handlers.menu import router as menu_router
 from handlers.shopping import router as shopping_router
+from services.async_tools import run_blocking
 from services.access import get_allowed_chat_ids
+from services.startup_validation import StartupValidationError, validate_startup
 from version import __version__
 
 
@@ -59,14 +61,20 @@ async def start_web_server() -> web.AppRunner:
     runner = web.AppRunner(app)
     await runner.setup()
     site = web.TCPSite(runner, host=WEBAPP_HOST, port=WEBAPP_PORT)
-    await site.start()
+    try:
+        await site.start()
+    except OSError as exc:
+        await runner.cleanup()
+        raise RuntimeError(
+            f"Web App port {WEBAPP_HOST}:{WEBAPP_PORT} is unavailable. Stop old bot process or free port."
+        ) from exc
     logging.info("Web App server started at http://%s:%s/webapp", WEBAPP_HOST, WEBAPP_PORT)
     return runner
 
 
 async def notify_startup(bot: Bot) -> None:
     try:
-        chat_ids = get_allowed_chat_ids()
+        chat_ids = await run_blocking(get_allowed_chat_ids)
     except Exception:
         logging.exception("Не удалось загрузить chat_id пользователей для стартовой рассылки")
         return
@@ -88,6 +96,12 @@ async def notify_startup(bot: Bot) -> None:
 
 async def main() -> None:
     setup_logging()
+    try:
+        await run_blocking(validate_startup)
+    except StartupValidationError as exc:
+        logging.error("Startup validation failed: %s", exc)
+        return
+
     web_runner = await start_web_server()
     bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
     dp = create_dispatcher()

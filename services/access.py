@@ -1,4 +1,5 @@
-﻿import logging
+import asyncio
+import logging
 import time
 
 from aiogram import types
@@ -172,7 +173,7 @@ async def check_access_message(message: types.Message) -> bool:
     user_id = message.from_user.id if message.from_user else None
 
     try:
-        is_allowed, reason = is_allowed_username(username)
+        is_allowed, reason = await asyncio.to_thread(is_allowed_username, username)
     except Exception:
         logging.exception("Не удалось загрузить список пользователей из Google Sheets")
         await message.answer("Ошибка проверки доступа. Попробуйте позже.")
@@ -180,9 +181,9 @@ async def check_access_message(message: types.Message) -> bool:
 
     if is_allowed:
         try:
-            sync_allowed_user_chat_id(username, user_id)
+            await asyncio.to_thread(sync_allowed_user_chat_id, username, user_id)
         except Exception:
-            logging.exception("Не удалось синхронизировать chat_id/user_id для username=%s", username)
+            logging.exception("Не удалось синхронизировать chat_id/user_id for username=%s", username)
         return True
 
     if reason == "empty_username":
@@ -201,7 +202,7 @@ async def check_access_callback(callback: types.CallbackQuery) -> bool:
     user_id = callback.from_user.id if callback.from_user else None
 
     try:
-        is_allowed, reason = is_allowed_username(username)
+        is_allowed, reason = await asyncio.to_thread(is_allowed_username, username)
     except Exception:
         logging.exception("Не удалось загрузить список пользователей из Google Sheets")
         await callback.answer("Ошибка проверки доступа. Попробуйте позже.", show_alert=True)
@@ -209,9 +210,9 @@ async def check_access_callback(callback: types.CallbackQuery) -> bool:
 
     if is_allowed:
         try:
-            sync_allowed_user_chat_id(username, user_id)
+            await asyncio.to_thread(sync_allowed_user_chat_id, username, user_id)
         except Exception:
-            logging.exception("Не удалось синхронизировать chat_id/user_id для username=%s", username)
+            logging.exception("Не удалось синхронизировать chat_id/user_id for username=%s", username)
         return True
 
     if reason == "empty_username":

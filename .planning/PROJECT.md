@@ -17,17 +17,18 @@ Users can record expenses in Telegram quickly and reliably without waiting on un
 - Existing bot starts from `bot.py` / `app.py` and uses aiogram polling.
 - Existing access control checks users against the `Users` worksheet.
 - Existing users can view limits and category details from Google Sheets.
-- Existing users can add expenses through a category, subcategory, amount, and confirmation flow.
+- Existing users can add expenses through a category, subcategory, and amount flow with autosave and post-save actions.
 - Existing users can view recent expenses from the expenses worksheet.
 - Existing users can add, remove, and clear shopping-list items.
 - Existing process manager can start, stop, restart, and check the bot process.
+- Bot keeps Google Sheets calls off critical async handler paths.
+- Expense writes are append-safe and return saved row identity plus `expense_id`.
+- Startup validates config names, credentials path, and required Google Sheets schema.
+- Automated tests cover cache behavior, access parsing, expense parsing/write identity, and saved-action flow.
+- Runtime smoke check passes under installed dependencies.
 
 ### Active
-
-- [ ] Keep the asyncio bot responsive while Google Sheets operations are slow.
-- [ ] Make expense writes append-safe and able to return enough identity for later edit/delete UX.
-- [ ] Add focused automated checks before changing shared service and handler behavior.
-- [ ] Improve the add-expense UX by saving by default and offering fast next actions.
+- None for this milestone. Milestone complete.
 
 ### Out of Scope
 
@@ -41,12 +42,12 @@ Users can record expenses in Telegram quickly and reliably without waiting on un
 The codebase is a small Python Telegram bot using aiogram, aiohttp, gspread, in-memory sessions, and Google Sheets as durable storage. The codebase map already identifies the main bottleneck: synchronous gspread calls inside async handlers, repeated spreadsheet opening, repeated worksheet listing, and full-sheet scans for operations that should be cached, appended, or range-limited.
 
 Important current behavior:
-- `services/google_sheets.py` creates a gspread service account and opens the spreadsheet on every `get_spreadsheet()` call.
-- `find_worksheet_case_insensitive()` calls `spreadsheet.worksheets()` repeatedly.
-- `services/budget.py` repeatedly reads categories, limits, and expenses with `get_all_values()`.
-- `services/expenses.py` scans the full expenses sheet to find the next row before writing.
-- `services/shopping.py` reads and writes shopping entries item by item.
-- `handlers/expenses.py` currently requires a separate save/cancel confirmation step after amount entry.
+- `services/google_sheets.py` caches gspread client, spreadsheet, and normalized worksheet lookup results.
+- `services/budget.py` shares a short-lived monthly snapshot for limit and category reads.
+- `services/expenses.py` appends new expenses, returns `SavedExpense`, and verifies `expense_id` before edit/delete mutations.
+- `handlers/expenses.py` autosaves after amount entry and offers edit/repeat/fresh follow-up actions.
+- Startup validates required config names, credentials path, and expected Sheets schema before bot polling starts.
+- Focused unit tests and runtime smoke checks exist for the milestone's changed paths.
 
 ## Constraints
 
@@ -61,15 +62,21 @@ Important current behavior:
 
 | Decision | Rationale | Outcome |
 |----------|-----------|---------|
-| Keep Google Sheets for this milestone | The user explicitly said the current database is a Google Sheet and wants acceleration first. | Pending |
-| Plan UX autosave as the final phase | The edit/delete UX depends on safer append identity and service behavior. | Pending |
-| Add both post-save buttons: same category and different expense | Repeated entry should support fast same-category entry and a fresh category flow. | Pending |
-| Use sequential phase execution | The bot is small and many changes touch shared services/handlers. | Pending |
+| Keep Google Sheets for this milestone | The user explicitly said the current database is a Google Sheet and wants acceleration first. | Complete |
+| Plan UX autosave as the final phase | The edit/delete UX depends on safer append identity and service behavior. | Complete |
+| Add both post-save buttons: same category and different expense | Repeated entry should support fast same-category entry and a fresh category flow. | Complete |
+| Use sequential phase execution | The bot is small and many changes touch shared services/handlers. | Complete |
+| Use generated `expense_id` in column `H` for stale-safe edit/delete | Row number alone is not enough when rows can shift. | Complete |
 
 ## Phase Notes
 
 - Phase 1 validated cached client, spreadsheet, and worksheet lookup reuse.
 - Phase 2 validated shared monthly budget snapshots, bounded recent-expense reads, and batch shopping-list appends.
+- Phase 3 validated threaded Sheets access at handler and startup boundaries so the bot loop stays responsive.
+- Phase 4 validated append-safe expense writes plus returned saved-record identity.
+- Phase 5 validated startup/schema checks, occupied-port diagnostics, and repo ignore rules for duplicates.
+- Phase 6 validated fake-based unit coverage and a real smoke check under installed dependencies.
+- Phase 7 validated autosave expense entry with edit/repeat/fresh follow-up actions.
 
 ## Evolution
 
@@ -89,4 +96,4 @@ After each milestone:
 4. Update Context with current state.
 
 ---
-*Last updated: 2026-06-29 after phase 2*
+*Last updated: 2026-06-29 after phase 7*

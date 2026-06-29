@@ -8,19 +8,36 @@ from keyboards.expenses import (
     build_cancel_keyboard,
     build_confirm_keyboard,
     build_expense_categories_keyboard,
+    build_saved_expense_actions_keyboard,
+    build_saved_expense_edit_keyboard,
     build_expense_subcategories_keyboard,
 )
 from keyboards.limits import build_category_actions_keyboard
 from keyboards.main import build_main_menu
+from services.async_tools import run_blocking
 from services.access import check_access_callback, check_access_message, is_allowed_username
 from services.budget import get_budget_limits, get_category_details, get_subcategories_for_category
-from services.expenses import parse_amount_with_optional_comment, write_expense
+from services.expenses import (
+    StaleExpenseError,
+    delete_expense,
+    parse_amount_with_optional_comment,
+    update_expense,
+    write_expense,
+)
 from state.expense_session import (
     create_session,
     get_active_session,
     is_stale_session,
     pop_session,
     touch_session,
+)
+from state.saved_expense_actions import (
+    create_saved_expense_action,
+    finalize_saved_expense_action,
+    get_saved_expense_action,
+    is_stale_saved_expense_action,
+    touch_saved_expense_action,
+    update_saved_expense_action,
 )
 
 router = Router()
@@ -78,7 +95,7 @@ async def _show_category_card(message_target: types.Message, category_name: str)
             category_spent,
             category_remaining,
             subcategories,
-        ) = get_category_details(category_name)
+        ) = await run_blocking(get_category_details, category_name)
     except Exception:
         logging.exception("Ошибка чтения категории после добавления траты")
         await message_target.answer("Трата добавлена, но не удалось загрузить карточку категории.")
@@ -114,8 +131,9 @@ async def _show_category_card(message_target: types.Message, category_name: str)
 
 
 async def _show_expense_category_step(message: types.Message, user_id: int) -> None:
+    finalize_saved_expense_action(user_id)
     try:
-        _, categories = get_budget_limits()
+        _, categories = await run_blocking(get_budget_limits)
     except Exception:
         logging.exception("Ошибка чтения категорий из Google Sheets")
         await message.answer("Не удалось загрузить категории. Попробуйте позже.")
@@ -129,6 +147,24 @@ async def _show_expense_category_step(message: types.Message, user_id: int) -> N
     prompt = await message.answer(
         "Введите категорию",
         reply_markup=build_expense_categories_keyboard(categories, session.session_id),
+    )
+    session.prompt_chat_id = prompt.chat.id
+    session.prompt_message_id = prompt.message_id
+
+
+async def _show_repeat_expense_amount_step(
+    message: types.Message,
+    user_id: int,
+    category: str,
+    subcategory: str,
+) -> None:
+    finalize_saved_expense_action(user_id)
+    session = create_session(user_id=user_id, state="enter_amount")
+    session.category = category
+    session.subcategory = subcategory
+    prompt = await message.answer(
+        f"Категория: {category}\nПодкатегория: {subcategory}\nВведите сумму (можно сразу с комментарием)",
+        reply_markup=build_cancel_keyboard(session.session_id),
     )
     session.prompt_chat_id = prompt.chat.id
     session.prompt_message_id = prompt.message_id
@@ -158,12 +194,12 @@ async def _finalize_expense(
     comment: str | None = None,
 ) -> None:
     session = get_active_session(user_id)
-    if session is None or session.state != "await_confirm":
+    if session is None or session.state not in {"enter_amount", "await_confirm"}:
         await message_target.answer("Шаг устарел, начните заново.")
         return
 
     try:
-        is_allowed, reason = is_allowed_username(username)
+        is_allowed, reason = await run_blocking(is_allowed_username, username)
     except Exception:
         logging.exception("Ошибка повторной проверки доступа перед записью траты")
         await message_target.answer("Ошибка проверки доступа. Попробуйте позже.")
@@ -184,7 +220,8 @@ async def _finalize_expense(
     actor_username = f"@{username}" if username else ""
 
     try:
-        write_expense(
+        saved_expense = await run_blocking(
+            write_expense,
             username=actor_username,
             category=category,
             subcategory=subcategory,
@@ -209,16 +246,70 @@ async def _finalize_expense(
     if final_comment:
         summary.append(f"Комментарий: {final_comment}")
 
+    action = create_saved_expense_action(user_id, saved_expense)
+
     logging.info(
-        "expense_added user_id=%s username=%s category=%s subcategory=%s amount=%s",
+        "expense_added user_id=%s username=%s category=%s subcategory=%s amount=%s row_number=%s",
         user_id,
         username,
         category,
         subcategory,
         amount,
+        getattr(saved_expense, "row_number", None),
     )
-    await message_target.answer("\n".join(summary), reply_markup=build_main_menu())
+    await message_target.answer(
+        "\n".join(summary),
+        reply_markup=build_saved_expense_actions_keyboard(action.action_id),
+    )
     await _show_category_card(message_target, category)
+
+
+async def _update_saved_expense(
+    user_id: int,
+    message_target: types.Message,
+    amount: str,
+    comment: str,
+) -> None:
+    session = get_active_session(user_id)
+    if session is None or session.state != "edit_saved_expense" or not session.saved_action_id:
+        await message_target.answer("Шаг устарел, начните заново.")
+        return
+
+    action = get_saved_expense_action(user_id)
+    if action is None or action.action_id != session.saved_action_id:
+        pop_session(user_id)
+        await message_target.answer("Кнопки устарели. Начните заново.")
+        return
+
+    try:
+        saved_expense = await run_blocking(update_expense, action.saved_expense, amount, comment)
+    except StaleExpenseError:
+        logging.warning("Попытка изменить устаревшую трату user_id=%s", user_id)
+        pop_session(user_id)
+        finalize_saved_expense_action(user_id)
+        await message_target.answer("Трата уже изменилась. Начните заново.")
+        return
+    except Exception:
+        logging.exception("Ошибка изменения траты в Google Sheets")
+        await message_target.answer("Не удалось изменить трату. Попробуйте позже.")
+        return
+
+    update_saved_expense_action(user_id, saved_expense)
+    pop_session(user_id)
+    await _safe_delete_prompt(message_target.bot, session.prompt_chat_id, session.prompt_message_id)
+    await message_target.answer(
+        "\n".join(
+            [
+                "Трата обновлена.",
+                f"Категория: {saved_expense.category}",
+                f"Подкатегория: {saved_expense.subcategory}",
+                f"Сумма: {saved_expense.amount}",
+                *( [f"Комментарий: {saved_expense.comment}"] if saved_expense.comment else [] ),
+            ]
+        ),
+        reply_markup=build_saved_expense_actions_keyboard(action.action_id),
+    )
+    await _show_category_card(message_target, saved_expense.category)
 
 
 @router.message(
@@ -269,27 +360,13 @@ async def expense_text_step(message: types.Message) -> None:
 
         session.amount = normalized_amount
         session.comment = inline_comment or None
-        session.state = "await_confirm"
         touch_session(session)
-
-        await _safe_delete_prompt(message.bot, session.prompt_chat_id, session.prompt_message_id)
-        confirm_lines = [
-            "Добавить трату:",
-            f"<b>{session.category}, {session.subcategory}, {session.amount}</b>",
-        ]
-        if session.comment:
-            confirm_lines.append(f"Комментарий: <b>{session.comment}</b>")
-            confirm_lines.append("Можно изменить комментарий сообщением или Сохранить")
-        else:
-            confirm_lines.append("Можно добавить комментарий сообщением или Сохранить")
-
-        prompt = await message.answer(
-            "\n".join(confirm_lines),
-            reply_markup=build_confirm_keyboard(session.session_id),
+        await _finalize_expense(
+            user_id=user_id,
+            username=message.from_user.username if message.from_user else None,
+            message_target=message,
+            comment=session.comment or "",
         )
-        session.prompt_chat_id = prompt.chat.id
-        session.prompt_message_id = prompt.message_id
-        touch_session(session)
         return
 
     if session.state == "await_confirm":
@@ -299,6 +376,24 @@ async def expense_text_step(message: types.Message) -> None:
             username=message.from_user.username if message.from_user else None,
             message_target=message,
             comment=comment,
+        )
+        return
+
+    if session.state == "edit_saved_expense":
+        try:
+            normalized_amount, inline_comment = parse_amount_with_optional_comment(message.text)
+        except ValueError as exc:
+            await message.answer(
+                f"Некорректная сумма: {exc}. Введите сумму еще раз.",
+                reply_markup=build_saved_expense_edit_keyboard(session.saved_action_id or ""),
+            )
+            return
+
+        await _update_saved_expense(
+            user_id=user_id,
+            message_target=message,
+            amount=normalized_amount,
+            comment=inline_comment,
         )
         return
 
@@ -343,14 +438,14 @@ async def expense_category_handler(callback: types.CallbackQuery) -> None:
         return
 
     try:
-        _, categories = get_budget_limits()
+        _, categories = await run_blocking(get_budget_limits)
         idx = int(idx_raw)
         if idx < 0 or idx >= len(categories):
             await callback.answer("Шаг устарел, начните заново", show_alert=True)
             return
 
         category_name = categories[idx]
-        subcategories = get_subcategories_for_category(category_name)
+        subcategories = await run_blocking(get_subcategories_for_category, category_name)
     except Exception:
         logging.exception("Ошибка чтения категорий/подкатегорий")
         await callback.answer("Ошибка чтения данных", show_alert=True)
@@ -403,7 +498,7 @@ async def expense_subcategory_handler(callback: types.CallbackQuery) -> None:
         return
 
     try:
-        subcategories = get_subcategories_for_category(session.category)
+        subcategories = await run_blocking(get_subcategories_for_category, session.category)
         idx = int(idx_raw)
         if idx < 0 or idx >= len(subcategories):
             await callback.answer("Шаг устарел, начните заново", show_alert=True)
@@ -456,3 +551,78 @@ async def expense_confirm_handler(callback: types.CallbackQuery) -> None:
             message_target=callback.message,
             comment=None,
         )
+
+
+@router.callback_query(lambda c: c.data and c.data.startswith("exp:saved:"))
+async def saved_expense_action_handler(callback: types.CallbackQuery) -> None:
+    if not await check_access_callback(callback):
+        return
+
+    user_id = callback.from_user.id
+    _, _, action_name, action_id = callback.data.split(":", 3)
+    if is_stale_saved_expense_action(user_id, action_id):
+        await callback.answer("Кнопки устарели. Начните заново.", show_alert=True)
+        return
+
+    action = get_saved_expense_action(user_id)
+    if action is None or callback.message is None:
+        await callback.answer("Кнопки устарели. Начните заново.", show_alert=True)
+        return
+
+    touch_saved_expense_action(action)
+
+    if action_name == "edit":
+        session = create_session(user_id=user_id, state="edit_saved_expense")
+        session.saved_action_id = action.action_id
+        prompt = await callback.message.answer(
+            "Введите новую сумму. Можно сразу с комментарием.",
+            reply_markup=build_saved_expense_edit_keyboard(action.action_id),
+        )
+        session.prompt_chat_id = prompt.chat.id
+        session.prompt_message_id = prompt.message_id
+        await callback.answer()
+        return
+
+    if action_name == "repeat":
+        await callback.answer()
+        await _show_repeat_expense_amount_step(
+            callback.message,
+            user_id,
+            action.saved_expense.category,
+            action.saved_expense.subcategory,
+        )
+        return
+
+    if action_name == "fresh":
+        await callback.answer()
+        await _show_expense_category_step(callback.message, user_id)
+        return
+
+    if action_name == "delete":
+        try:
+            await run_blocking(delete_expense, action.saved_expense)
+        except StaleExpenseError:
+            logging.warning("Попытка удалить устаревшую трату user_id=%s", user_id)
+            finalize_saved_expense_action(user_id)
+            await callback.answer("Трата уже изменилась. Начните заново.", show_alert=True)
+            return
+        except Exception:
+            logging.exception("Ошибка удаления траты из Google Sheets")
+            await callback.answer("Не удалось удалить трату.", show_alert=True)
+            return
+
+        pop_session(user_id)
+        finalize_saved_expense_action(user_id)
+        await callback.answer()
+        await callback.message.answer("Трата удалена.", reply_markup=build_main_menu())
+        return
+
+    if action_name == "cancel":
+        pop_session(user_id)
+        finalize_saved_expense_action(user_id)
+        await callback.answer("Действие отменено", show_alert=False)
+        if callback.message:
+            await callback.message.answer("Действие отменено.")
+        return
+
+    await callback.answer("Неизвестное действие.", show_alert=True)

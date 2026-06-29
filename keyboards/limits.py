@@ -10,7 +10,6 @@ def build_categories_keyboard(categories: list[str]) -> InlineKeyboardMarkup:
                 InlineKeyboardButton(
                     text=category,
                     callback_data=f"viewcat:{idx}",
-                    style="primary",
                 )
             ]
         )
@@ -24,7 +23,6 @@ def build_category_actions_keyboard() -> InlineKeyboardMarkup:
                 InlineKeyboardButton(
                     text="💸Добавить трату",
                     callback_data=MENU_EXPENSES_CALLBACK,
-                    style="success",
                 )
             ]
         ]

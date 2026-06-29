@@ -50,6 +50,7 @@ This roadmap improves the existing Google Sheets-backed Telegram budget bot in r
 
 **Goal:** Prevent slow gspread calls from blocking the bot event loop.
 **Mode:** mvp
+**Status:** complete
 
 **Requirements:** ASYNC-01, ASYNC-02, ASYNC-03
 
@@ -67,6 +68,7 @@ This roadmap improves the existing Google Sheets-backed Telegram budget bot in r
 
 **Goal:** Make expense creation race-resistant and return saved-record identity for future UX actions.
 **Mode:** mvp
+**Status:** complete
 
 **Requirements:** EXP-01, EXP-02, EXP-03
 
@@ -85,6 +87,7 @@ This roadmap improves the existing Google Sheets-backed Telegram budget bot in r
 
 **Goal:** Make runtime failures and repository structure easier to understand before larger UX changes.
 **Mode:** mvp
+**Status:** complete
 
 **Requirements:** OPS-01, OPS-02, OPS-03
 
@@ -102,6 +105,7 @@ This roadmap improves the existing Google Sheets-backed Telegram budget bot in r
 
 **Goal:** Add enough automated coverage to safely change expense, access, and Sheets adapter behavior.
 **Mode:** mvp
+**Status:** complete
 
 **Requirements:** TEST-01, TEST-02, TEST-03, TEST-04
 
@@ -120,6 +124,7 @@ This roadmap improves the existing Google Sheets-backed Telegram budget bot in r
 
 **Goal:** Remove the extra save-confirmation click and offer fast post-save actions.
 **Mode:** mvp
+**Status:** complete
 
 **Requirements:** UX-01, UX-02, UX-03, UX-04, UX-05
 
@@ -138,4 +143,4 @@ This roadmap improves the existing Google Sheets-backed Telegram budget bot in r
 
 ## Next Step
 
-Run `$gsd-plan-phase 3` to plan the async responsiveness boundary implementation.
+Milestone complete. Run milestone audit/cleanup or define next milestone requirements.
