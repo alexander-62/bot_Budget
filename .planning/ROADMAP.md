@@ -31,6 +31,7 @@ This roadmap improves the existing Google Sheets-backed Telegram budget bot in r
 
 **Goal:** Reduce repeated full-sheet reads in budget, recent-expense, and shopping-list operations.
 **Mode:** mvp
+**Status:** complete
 
 **Requirements:** PERF-03, PERF-04, PERF-05
 
@@ -137,4 +138,4 @@ This roadmap improves the existing Google Sheets-backed Telegram budget bot in r
 
 ## Next Step
 
-Run `$gsd-plan-phase 1` to plan the spreadsheet adapter cache implementation.
+Run `$gsd-plan-phase 3` to plan the async responsiveness boundary implementation.

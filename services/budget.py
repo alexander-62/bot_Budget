@@ -4,6 +4,7 @@ from collections import OrderedDict
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal, InvalidOperation
+from time import monotonic
 
 from constants import CATEGORIES_SHEET_NAME, EXPENSES_SHEET_NAME, LIMITS_SHEET_NAME
 from services.google_sheets import (
@@ -13,6 +14,9 @@ from services.google_sheets import (
 )
 
 _TRUTHY_VALUES = {"true", "1", "yes", "y", "да"}
+# Keep the monthly snapshot short-lived so category and limit views share one read
+# during a user action but the cache naturally expires without manual cleanup.
+_BUDGET_SNAPSHOT_TTL_SECONDS = 5.0
 
 
 @dataclass(frozen=True)
@@ -22,32 +26,42 @@ class ActiveSubcategory:
     sort_order: int
 
 
+@dataclass(frozen=True)
+class BudgetSnapshot:
+    loaded_at: float
+    month_key: str
+    active_subcategories: tuple[ActiveSubcategory, ...]
+    limits_by_pair: dict[tuple[str, str], Decimal]
+    spent_by_pair: dict[tuple[str, str], Decimal]
+
+
+_budget_snapshot_cache: dict[str, BudgetSnapshot] = {}
+
+
 def get_current_month_key(today: date | None = None) -> str:
     current = today or date.today()
     return f"{current.year:04d}-{current.month:02d}"
 
 
 def get_budget_limits() -> tuple[str, list[str]]:
-    active_subcategories = _load_active_subcategories()
-    categories = _unique_categories(active_subcategories)
     month_key = get_current_month_key()
+    snapshot = _get_budget_snapshot(month_key)
+    categories = _unique_categories(snapshot.active_subcategories)
 
-    total_limit = _format_decimal(_sum_limits_for_month(active_subcategories, month_key))
+    total_limit = _format_decimal(_sum_limits_for_month(snapshot.active_subcategories, snapshot.limits_by_pair))
     return total_limit, categories
 
 
 def get_month_totals() -> tuple[str, str, str]:
-    active_subcategories = _load_active_subcategories()
     month_key = get_current_month_key()
-    limits_by_pair = _load_limits_for_month(month_key)
-    spent_by_pair = _load_spent_for_month(month_key)
+    snapshot = _get_budget_snapshot(month_key)
 
     total_limit = Decimal("0")
     total_spent = Decimal("0")
-    for item in active_subcategories:
+    for item in snapshot.active_subcategories:
         key = (normalize_text(item.category), normalize_text(item.subcategory))
-        total_limit += limits_by_pair.get(key, Decimal("0"))
-        total_spent += spent_by_pair.get(key, Decimal("0"))
+        total_limit += snapshot.limits_by_pair.get(key, Decimal("0"))
+        total_spent += snapshot.spent_by_pair.get(key, Decimal("0"))
 
     total_remaining = total_limit - total_spent
     return (
@@ -60,13 +74,11 @@ def get_month_totals() -> tuple[str, str, str]:
 def get_category_details(
     category_name: str,
 ) -> tuple[str, str, str, str, list[tuple[str, str, str, str]]]:
-    active_subcategories = _load_active_subcategories()
     month_key = get_current_month_key()
-    limits_by_pair = _load_limits_for_month(month_key)
-    spent_by_pair = _load_spent_for_month(month_key)
+    snapshot = _get_budget_snapshot(month_key)
 
     target_key = normalize_text(category_name)
-    category_items = [item for item in active_subcategories if normalize_text(item.category) == target_key]
+    category_items = [item for item in snapshot.active_subcategories if normalize_text(item.category) == target_key]
     if not category_items:
         raise ValueError("Категория не найдена")
 
@@ -77,8 +89,8 @@ def get_category_details(
 
     for item in category_items:
         pair_key = (normalize_text(item.category), normalize_text(item.subcategory))
-        sub_limit = limits_by_pair.get(pair_key, Decimal("0"))
-        sub_spent = spent_by_pair.get(pair_key, Decimal("0"))
+        sub_limit = snapshot.limits_by_pair.get(pair_key, Decimal("0"))
+        sub_spent = snapshot.spent_by_pair.get(pair_key, Decimal("0"))
         sub_remaining = sub_limit - sub_spent
 
         category_limit += sub_limit
@@ -105,6 +117,33 @@ def get_category_details(
 def get_subcategories_for_category(category_name: str) -> list[str]:
     _, _, _, _, subcategories = get_category_details(category_name)
     return [name for name, *_ in subcategories]
+
+
+def clear_budget_snapshot_cache() -> None:
+    _budget_snapshot_cache.clear()
+
+
+def _get_budget_snapshot(month_key: str, refresh: bool = False) -> BudgetSnapshot:
+    cached = _budget_snapshot_cache.get(month_key)
+    if not refresh and cached is not None and monotonic() - cached.loaded_at <= _BUDGET_SNAPSHOT_TTL_SECONDS:
+        return cached
+
+    snapshot = _load_budget_snapshot(month_key)
+    _budget_snapshot_cache[month_key] = snapshot
+    return snapshot
+
+
+def _load_budget_snapshot(month_key: str) -> BudgetSnapshot:
+    active_subcategories = tuple(_load_active_subcategories())
+    limits_by_pair = _load_limits_for_month(month_key)
+    spent_by_pair = _load_spent_for_month(month_key)
+    return BudgetSnapshot(
+        loaded_at=monotonic(),
+        month_key=month_key,
+        active_subcategories=active_subcategories,
+        limits_by_pair=limits_by_pair,
+        spent_by_pair=spent_by_pair,
+    )
 
 
 def _load_active_subcategories() -> list[ActiveSubcategory]:
@@ -191,8 +230,10 @@ def _load_spent_for_month(month_key: str) -> dict[tuple[str, str], Decimal]:
     return spent
 
 
-def _sum_limits_for_month(active_subcategories: list[ActiveSubcategory], month_key: str) -> Decimal:
-    limits_by_pair = _load_limits_for_month(month_key)
+def _sum_limits_for_month(
+    active_subcategories: tuple[ActiveSubcategory, ...] | list[ActiveSubcategory],
+    limits_by_pair: dict[tuple[str, str], Decimal],
+) -> Decimal:
     total = Decimal("0")
     for item in active_subcategories:
         key = (normalize_text(item.category), normalize_text(item.subcategory))

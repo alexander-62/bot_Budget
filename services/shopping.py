@@ -47,23 +47,68 @@ def get_shopping_items() -> list[str]:
 
 
 def add_shopping_item(raw_item: str) -> tuple[bool, str]:
+    added_items, existing_items = add_shopping_items([raw_item])
+    if added_items:
+        return True, added_items[0]
+    return False, existing_items[0]
+
+
+def add_shopping_items(raw_items: list[str]) -> tuple[list[str], list[str]]:
+    if not raw_items:
+        return [], []
+
+    prepared_items: list[str] = []
+    for raw_item in raw_items:
+        item = " ".join(raw_item.strip().split())
+        if not item:
+            raise ValueError("Пустой ввод не допускается")
+        if len(item) > SHOPPING_ITEM_MAX_LEN:
+            raise ValueError(f"Максимальная длина позиции: {SHOPPING_ITEM_MAX_LEN} символов")
+        prepared_items.append(item)
+
+    entries = get_shopping_entries()
+    existing_by_normalized: dict[str, str] = {}
+    for _, existing in entries:
+        normalized_existing = _normalize_item(existing)
+        existing_by_normalized.setdefault(normalized_existing, existing)
+
+    new_items: list[str] = []
+    existing_items: list[str] = []
+    first_new_by_normalized: dict[str, str] = {}
+    seen_new_normalized: set[str] = set()
+
+    for item in prepared_items:
+        normalized_item = _normalize_item(item)
+        existing_item = existing_by_normalized.get(normalized_item)
+        if existing_item is not None:
+            existing_items.append(existing_item)
+            continue
+
+        if normalized_item in seen_new_normalized:
+            existing_items.append(first_new_by_normalized[normalized_item])
+            continue
+
+        seen_new_normalized.add(normalized_item)
+        first_new_by_normalized[normalized_item] = item
+        new_items.append(item)
+
+    if new_items:
+        worksheet = _get_worksheet()
+        worksheet.append_rows([[item] for item in new_items], value_input_option="RAW")
+
+    return new_items, existing_items
+
+
+def add_shopping_item(raw_item: str) -> tuple[bool, str]:
     item = " ".join(raw_item.strip().split())
     if not item:
         raise ValueError("Пустой ввод не допускается")
     if len(item) > SHOPPING_ITEM_MAX_LEN:
         raise ValueError(f"Максимальная длина позиции: {SHOPPING_ITEM_MAX_LEN} символов")
-
-    entries = get_shopping_entries()
-    normalized_new = _normalize_item(item)
-    for _, existing in entries:
-        if _normalize_item(existing) == normalized_new:
-            return False, existing
-
-    worksheet = _get_worksheet()
-    values = worksheet.col_values(1)
-    next_row = len(values) + 1 if values else 1
-    worksheet.update(f"A{next_row}", [[item]], raw=False)
-    return True, item
+    added_items, existing_items = add_shopping_items([item])
+    if added_items:
+        return True, added_items[0]
+    return False, existing_items[0]
 
 
 def remove_shopping_item_by_number(number: int) -> str:

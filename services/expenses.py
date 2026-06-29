@@ -86,10 +86,16 @@ def get_recent_expenses(limit: int = 5) -> list[tuple[str, str, str, str, str, s
 
     spreadsheet = get_spreadsheet()
     worksheet = find_worksheet_case_insensitive(spreadsheet, EXPENSES_SHEET_NAME)
-    all_rows = worksheet.get_all_values()
+    last_row = len(worksheet.col_values(1))
+    if last_row <= 1:
+        return []
+
+    tail_size = max(limit * 3, limit + 5)
+    start_row = max(2, last_row - tail_size + 1)
+    rows = worksheet.get(f"A{start_row}:G{last_row}") or []
 
     expenses: list[tuple[str, str, str, str, str, str]] = []
-    for row in all_rows[1:]:
+    for row in rows:
         date_value = row[0].strip() if len(row) > 0 else ""
         username_value = row[2].strip() if len(row) > 2 else ""
         category_value = row[3].strip() if len(row) > 3 else ""

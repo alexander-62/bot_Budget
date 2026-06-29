@@ -1,8 +1,8 @@
 # Project State: Bot Budget Optimization
 
 **Initialized:** 2026-06-29
-**Current Phase:** Phase 2 - Read Path Optimization
-**Status:** Phase 1 complete; ready for next phase planning
+**Current Phase:** Phase 3 - Async Responsiveness Boundary
+**Status:** Phase 2 complete; ready for next phase planning
 
 ## Project Reference
 
@@ -16,7 +16,7 @@ See: `.planning/PROJECT.md` (updated 2026-06-29)
 | Phase | Status | Requirements |
 |-------|--------|--------------|
 | 1. Spreadsheet Adapter Cache | Complete | PERF-01, PERF-02 |
-| 2. Read Path Optimization | Pending | PERF-03, PERF-04, PERF-05 |
+| 2. Read Path Optimization | Complete | PERF-03, PERF-04, PERF-05 |
 | 3. Async Responsiveness Boundary | Pending | ASYNC-01, ASYNC-02, ASYNC-03 |
 | 4. Append-Safe Expense Writes | Pending | EXP-01, EXP-02, EXP-03 |
 | 5. Operational Reliability Cleanup | Pending | OPS-01, OPS-02, OPS-03 |

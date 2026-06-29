@@ -9,9 +9,9 @@
 
 - [ ] **PERF-01**: Bot reuses a cached gspread client and spreadsheet object instead of creating them for every service call.
 - [ ] **PERF-02**: Bot reuses worksheet lookups by normalized worksheet name instead of listing all worksheets on every operation.
-- [ ] **PERF-03**: Budget limit and category views share parsed Google Sheets data within a short-lived cache or request snapshot.
-- [ ] **PERF-04**: Recent-expenses retrieval avoids unnecessary full-sheet processing when a bounded recent range or cache is sufficient.
-- [ ] **PERF-05**: Shopping-list batch add reads existing items once and writes new items in a batch where possible.
+- [x] **PERF-03**: Budget limit and category views share parsed Google Sheets data within a short-lived cache or request snapshot.
+- [x] **PERF-04**: Recent-expenses retrieval avoids unnecessary full-sheet processing when a bounded recent range or cache is sufficient.
+- [x] **PERF-05**: Shopping-list batch add reads existing items once and writes new items in a batch where possible.
 
 ### Async Responsiveness
 
@@ -77,9 +77,9 @@
 |-------------|-------|--------|
 | PERF-01 | Phase 1 | Pending |
 | PERF-02 | Phase 1 | Pending |
-| PERF-03 | Phase 2 | Pending |
-| PERF-04 | Phase 2 | Pending |
-| PERF-05 | Phase 2 | Pending |
+| PERF-03 | Phase 2 | Complete |
+| PERF-04 | Phase 2 | Complete |
+| PERF-05 | Phase 2 | Complete |
 | ASYNC-01 | Phase 3 | Pending |
 | ASYNC-02 | Phase 3 | Pending |
 | ASYNC-03 | Phase 3 | Pending |
@@ -106,4 +106,4 @@
 
 ---
 *Requirements defined: 2026-06-29*
-*Last updated: 2026-06-29 after initial definition*
+*Last updated: 2026-06-29 after phase 2*

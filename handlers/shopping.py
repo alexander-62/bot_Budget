@@ -10,7 +10,7 @@ from keyboards.shopping import (
 )
 from services.access import check_access_callback, check_access_message
 from services.shopping import (
-    add_shopping_item,
+    add_shopping_items,
     clear_shopping_list,
     get_shopping_items,
     remove_shopping_items_by_numbers,
@@ -149,21 +149,15 @@ async def shopping_text_step(message: types.Message) -> None:
             if not items_to_add:
                 raise ValueError("Пустой ввод не допускается")
 
-            added_items: list[str] = []
-            existing_items: list[str] = []
-            for raw_item in items_to_add:
-                created, item = add_shopping_item(raw_item)
-                if created:
-                    added_items.append(item)
-                    logging.info(
-                        "shopping_add user_id=%s username=%s item=%s status=success",
-                        user_id,
-                        message.from_user.username if message.from_user else None,
-                        item,
-                    )
-                    continue
-
-                existing_items.append(item)
+            added_items, existing_items = add_shopping_items(items_to_add)
+            for item in added_items:
+                logging.info(
+                    "shopping_add user_id=%s username=%s item=%s status=success",
+                    user_id,
+                    message.from_user.username if message.from_user else None,
+                    item,
+                )
+            for item in existing_items:
                 logging.info(
                     "shopping_add user_id=%s username=%s item=%s status=deduplicated",
                     user_id,

@@ -24,8 +24,6 @@ Users can record expenses in Telegram quickly and reliably without waiting on un
 
 ### Active
 
-- [ ] Reduce repeated Google Sheets client, spreadsheet, and worksheet lookup overhead.
-- [ ] Reduce full-sheet reads in common budget, expense, and shopping-list paths.
 - [ ] Keep the asyncio bot responsive while Google Sheets operations are slow.
 - [ ] Make expense writes append-safe and able to return enough identity for later edit/delete UX.
 - [ ] Add focused automated checks before changing shared service and handler behavior.
@@ -68,6 +66,11 @@ Important current behavior:
 | Add both post-save buttons: same category and different expense | Repeated entry should support fast same-category entry and a fresh category flow. | Pending |
 | Use sequential phase execution | The bot is small and many changes touch shared services/handlers. | Pending |
 
+## Phase Notes
+
+- Phase 1 validated cached client, spreadsheet, and worksheet lookup reuse.
+- Phase 2 validated shared monthly budget snapshots, bounded recent-expense reads, and batch shopping-list appends.
+
 ## Evolution
 
 This document evolves at phase transitions and milestone boundaries.
@@ -86,4 +89,4 @@ After each milestone:
 4. Update Context with current state.
 
 ---
-*Last updated: 2026-06-29 after initialization*
+*Last updated: 2026-06-29 after phase 2*
