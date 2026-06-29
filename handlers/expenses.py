@@ -122,7 +122,7 @@ async def _show_expense_category_step(message: types.Message, user_id: int) -> N
         return
 
     if not categories:
-        await message.answer("Категории не найдены в листе Бюджет.")
+        await message.answer("Категории не найдены в таблице.")
         return
 
     session = create_session(user_id=user_id, state="choose_category")

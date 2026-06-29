@@ -8,6 +8,7 @@ from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 
 from aiogram import Router, types
 from aiogram.filters import CommandStart
+from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from constants import MENU_LIMITS_CALLBACK, MENU_VIEW_EXPENSES_TEXT, MENU_VIEW_LIMITS_TEXT
 from keyboards.limits import build_categories_keyboard, build_category_actions_keyboard
@@ -15,6 +16,7 @@ from keyboards.main import build_main_menu
 from services.access import check_access_callback, check_access_message
 from services.budget import get_budget_limits, get_category_details, get_month_totals
 from services.expenses import get_recent_expenses
+from services.google_sheets import get_spreadsheet_url
 
 router = Router()
 _restart_in_progress = False
@@ -62,7 +64,7 @@ async def _send_limits(target_message: types.Message) -> None:
         return
 
     if not categories:
-        await target_message.answer("Категории не найдены в листе Бюджет.")
+        await target_message.answer("Категории не найдены в таблице.")
         return
 
     try:
@@ -116,7 +118,12 @@ async def _send_recent_expenses(target_message: types.Message, limit: int = 5) -
             lines.append(f"Комментарий: {comment_value}")
         lines.append("")
 
-    await target_message.answer("\n".join(lines).strip())
+    keyboard = InlineKeyboardBuilder()
+    keyboard.button(text="Открыть гугл таблицу", url=get_spreadsheet_url())
+    await target_message.answer(
+        "\n".join(lines).strip(),
+        reply_markup=keyboard.as_markup(),
+    )
 
 
 async def _restart_process_after_delay(delay_seconds: int = 5) -> None:

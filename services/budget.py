@@ -1,137 +1,105 @@
-from constants import (
-    BUDGET_SHEET_NAME,
-    TOTAL_LIMIT_MARKER,
-    TOTAL_REMAINING_MARKER,
-    TOTAL_SPENT_MARKER,
-)
+from __future__ import annotations
+
+from collections import OrderedDict
+from dataclasses import dataclass
+from datetime import date
+from decimal import Decimal, InvalidOperation
+
+from constants import CATEGORIES_SHEET_NAME, EXPENSES_SHEET_NAME, LIMITS_SHEET_NAME
 from services.google_sheets import (
     find_worksheet_case_insensitive,
     get_spreadsheet,
     normalize_text,
 )
 
+_TRUTHY_VALUES = {"true", "1", "yes", "y", "да"}
+
+
+@dataclass(frozen=True)
+class ActiveSubcategory:
+    category: str
+    subcategory: str
+    sort_order: int
+
+
+def get_current_month_key(today: date | None = None) -> str:
+    current = today or date.today()
+    return f"{current.year:04d}-{current.month:02d}"
+
 
 def get_budget_limits() -> tuple[str, list[str]]:
-    spreadsheet = get_spreadsheet()
-    worksheet = find_worksheet_case_insensitive(spreadsheet, BUDGET_SHEET_NAME)
+    active_subcategories = _load_active_subcategories()
+    categories = _unique_categories(active_subcategories)
+    month_key = get_current_month_key()
 
-    all_rows = worksheet.get_all_values()
-    categories: list[str] = []
-    seen_categories: set[str] = set()
-
-    for row in all_rows[1:]:
-        name = row[0].strip() if len(row) > 0 else ""
-        if not name:
-            continue
-        key = normalize_text(name)
-        if key in seen_categories:
-            continue
-        seen_categories.add(key)
-        categories.append(name)
-
-    total_limit = _find_marker_value(
-        all_rows=all_rows,
-        marker_text=TOTAL_LIMIT_MARKER,
-        marker_col_idx=8,  # I
-        value_col_idx=9,  # J
-    )
-
-    if not total_limit:
-        raise ValueError("Не найден общий лимит месяца в таблице")
-
+    total_limit = _format_decimal(_sum_limits_for_month(active_subcategories, month_key))
     return total_limit, categories
 
 
 def get_month_totals() -> tuple[str, str, str]:
-    spreadsheet = get_spreadsheet()
-    worksheet = find_worksheet_case_insensitive(spreadsheet, BUDGET_SHEET_NAME)
-    all_rows = worksheet.get_all_values()
+    active_subcategories = _load_active_subcategories()
+    month_key = get_current_month_key()
+    limits_by_pair = _load_limits_for_month(month_key)
+    spent_by_pair = _load_spent_for_month(month_key)
 
-    total_limit = _find_marker_value(
-        all_rows=all_rows,
-        marker_text=TOTAL_LIMIT_MARKER,
-        marker_col_idx=8,  # I
-        value_col_idx=9,  # J
-    )
-    total_spent = _find_marker_value(
-        all_rows=all_rows,
-        marker_text=TOTAL_SPENT_MARKER,
-        marker_col_idx=10,  # K
-        value_col_idx=11,  # L
-    )
-    total_remaining = _find_marker_value(
-        all_rows=all_rows,
-        marker_text=TOTAL_REMAINING_MARKER,
-        marker_col_idx=12,  # M
-        value_col_idx=13,  # N
-    )
+    total_limit = Decimal("0")
+    total_spent = Decimal("0")
+    for item in active_subcategories:
+        key = (normalize_text(item.category), normalize_text(item.subcategory))
+        total_limit += limits_by_pair.get(key, Decimal("0"))
+        total_spent += spent_by_pair.get(key, Decimal("0"))
 
-    if not total_limit:
-        raise ValueError("Не найден общий лимит месяца в таблице")
-    if not total_spent:
-        raise ValueError("Не найден итог потрачено за месяц в таблице")
-    if not total_remaining:
-        raise ValueError("Не найден итог осталось за месяц в таблице")
-
-    return total_limit, total_spent, total_remaining
+    total_remaining = total_limit - total_spent
+    return (
+        _format_decimal(total_limit),
+        _format_decimal(total_spent),
+        _format_decimal(total_remaining),
+    )
 
 
 def get_category_details(
     category_name: str,
 ) -> tuple[str, str, str, str, list[tuple[str, str, str, str]]]:
-    spreadsheet = get_spreadsheet()
-    worksheet = find_worksheet_case_insensitive(spreadsheet, BUDGET_SHEET_NAME)
-    all_rows = worksheet.get_all_values()
+    active_subcategories = _load_active_subcategories()
+    month_key = get_current_month_key()
+    limits_by_pair = _load_limits_for_month(month_key)
+    spent_by_pair = _load_spent_for_month(month_key)
 
     target_key = normalize_text(category_name)
-    start_idx = None
-
-    for idx, row in enumerate(all_rows[1:], start=1):
-        category_cell = row[0].strip() if len(row) > 0 else ""
-        if normalize_text(category_cell) == target_key:
-            start_idx = idx
-            break
-
-    if start_idx is None:
+    category_items = [item for item in active_subcategories if normalize_text(item.category) == target_key]
+    if not category_items:
         raise ValueError("Категория не найдена")
 
-    category_row = all_rows[start_idx]
-    category_title = category_row[0].strip() if len(category_row) > 0 else category_name
-    category_limit = category_row[3].strip() if len(category_row) > 3 else ""
-    category_spent = category_row[5].strip() if len(category_row) > 5 else ""
-    category_remaining = category_row[7].strip() if len(category_row) > 7 else ""
-    if not category_limit:
-        category_limit = "не указан"
-    if not category_spent:
-        category_spent = "—"
-    if not category_remaining:
-        category_remaining = "—"
-
+    category_title = category_items[0].category
     subcategories: list[tuple[str, str, str, str]] = []
-    for row in all_rows[start_idx + 1 :]:
-        next_category = row[0].strip() if len(row) > 0 else ""
-        if next_category:
-            break
+    category_limit = Decimal("0")
+    category_spent = Decimal("0")
 
-        subcategory_name = row[1].strip() if len(row) > 1 else ""
-        subcategory_limit = row[2].strip() if len(row) > 2 else ""
-        subcategory_spent = row[4].strip() if len(row) > 4 else ""
-        subcategory_remaining = row[6].strip() if len(row) > 6 else ""
+    for item in category_items:
+        pair_key = (normalize_text(item.category), normalize_text(item.subcategory))
+        sub_limit = limits_by_pair.get(pair_key, Decimal("0"))
+        sub_spent = spent_by_pair.get(pair_key, Decimal("0"))
+        sub_remaining = sub_limit - sub_spent
 
-        if not subcategory_name:
-            continue
-        if not subcategory_limit:
-            subcategory_limit = "не указан"
-        if not subcategory_spent:
-            subcategory_spent = "—"
-        if not subcategory_remaining:
-            subcategory_remaining = "—"
-
+        category_limit += sub_limit
+        category_spent += sub_spent
         subcategories.append(
-            (subcategory_name, subcategory_limit, subcategory_spent, subcategory_remaining)
+            (
+                item.subcategory,
+                _format_decimal(sub_limit),
+                _format_decimal(sub_spent),
+                _format_decimal(sub_remaining),
+            )
         )
 
-    return category_title, category_limit, category_spent, category_remaining, subcategories
+    category_remaining = category_limit - category_spent
+    return (
+        category_title,
+        _format_decimal(category_limit),
+        _format_decimal(category_spent),
+        _format_decimal(category_remaining),
+        subcategories,
+    )
 
 
 def get_subcategories_for_category(category_name: str) -> list[str]:
@@ -139,11 +107,128 @@ def get_subcategories_for_category(category_name: str) -> list[str]:
     return [name for name, *_ in subcategories]
 
 
-def _find_marker_value(
-    all_rows: list[list[str]], marker_text: str, marker_col_idx: int, value_col_idx: int
-) -> str:
-    for row in all_rows:
-        marker = row[marker_col_idx] if len(row) > marker_col_idx else ""
-        if normalize_text(marker) == marker_text:
-            return row[value_col_idx].strip() if len(row) > value_col_idx else ""
-    return ""
+def _load_active_subcategories() -> list[ActiveSubcategory]:
+    spreadsheet = get_spreadsheet()
+    worksheet = find_worksheet_case_insensitive(spreadsheet, CATEGORIES_SHEET_NAME)
+    rows = worksheet.get_all_values()
+
+    items: list[ActiveSubcategory] = []
+    seen_pairs: set[tuple[str, str]] = set()
+    for row in rows[1:]:
+        category = row[0].strip() if len(row) > 0 else ""
+        subcategory = row[1].strip() if len(row) > 1 else ""
+        active_raw = row[2].strip() if len(row) > 2 else ""
+        sort_order_raw = row[3].strip() if len(row) > 3 else ""
+
+        if not category or not subcategory:
+            continue
+        if not _is_active(active_raw):
+            continue
+
+        key = (normalize_text(category), normalize_text(subcategory))
+        if key in seen_pairs:
+            continue
+        seen_pairs.add(key)
+
+        items.append(
+            ActiveSubcategory(
+                category=category,
+                subcategory=subcategory,
+                sort_order=_parse_sort_order(sort_order_raw),
+            )
+        )
+
+    items.sort(key=lambda item: (item.sort_order, normalize_text(item.category), normalize_text(item.subcategory)))
+    return items
+
+
+def _load_limits_for_month(month_key: str) -> dict[tuple[str, str], Decimal]:
+    spreadsheet = get_spreadsheet()
+    worksheet = find_worksheet_case_insensitive(spreadsheet, LIMITS_SHEET_NAME)
+    rows = worksheet.get_all_values()
+    if not rows:
+        return {}
+
+    header = rows[0]
+    month_col_idx = next(
+        (idx for idx, value in enumerate(header) if value.strip() == month_key),
+        None,
+    )
+    if month_col_idx is None:
+        return {}
+
+    limits: dict[tuple[str, str], Decimal] = {}
+    for row in rows[1:]:
+        category = row[0].strip() if len(row) > 0 else ""
+        subcategory = row[1].strip() if len(row) > 1 else ""
+        if not category or not subcategory:
+            continue
+
+        raw_limit = row[month_col_idx].strip() if len(row) > month_col_idx else ""
+        limits[(normalize_text(category), normalize_text(subcategory))] = _parse_decimal(raw_limit)
+
+    return limits
+
+
+def _load_spent_for_month(month_key: str) -> dict[tuple[str, str], Decimal]:
+    spreadsheet = get_spreadsheet()
+    worksheet = find_worksheet_case_insensitive(spreadsheet, EXPENSES_SHEET_NAME)
+    rows = worksheet.get_all_values()
+
+    spent: dict[tuple[str, str], Decimal] = {}
+    for row in rows[1:]:
+        row_month_key = row[1].strip() if len(row) > 1 else ""
+        category = row[3].strip() if len(row) > 3 else ""
+        subcategory = row[4].strip() if len(row) > 4 else ""
+        raw_amount = row[5].strip() if len(row) > 5 else ""
+
+        if row_month_key != month_key or not category or not subcategory:
+            continue
+
+        key = (normalize_text(category), normalize_text(subcategory))
+        spent[key] = spent.get(key, Decimal("0")) + _parse_decimal(raw_amount)
+
+    return spent
+
+
+def _sum_limits_for_month(active_subcategories: list[ActiveSubcategory], month_key: str) -> Decimal:
+    limits_by_pair = _load_limits_for_month(month_key)
+    total = Decimal("0")
+    for item in active_subcategories:
+        key = (normalize_text(item.category), normalize_text(item.subcategory))
+        total += limits_by_pair.get(key, Decimal("0"))
+    return total
+
+
+def _unique_categories(active_subcategories: list[ActiveSubcategory]) -> list[str]:
+    categories: OrderedDict[str, str] = OrderedDict()
+    for item in active_subcategories:
+        key = normalize_text(item.category)
+        categories.setdefault(key, item.category)
+    return list(categories.values())
+
+
+def _is_active(value: str) -> bool:
+    return normalize_text(value) in _TRUTHY_VALUES
+
+
+def _parse_sort_order(value: str) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 10**9
+
+
+def _parse_decimal(value: str) -> Decimal:
+    normalized = value.strip().replace("\xa0", "").replace(" ", "").replace(",", ".")
+    if not normalized:
+        return Decimal("0")
+    try:
+        return Decimal(normalized)
+    except InvalidOperation:
+        return Decimal("0")
+
+
+def _format_decimal(value: Decimal) -> str:
+    quantized = value.quantize(Decimal("0.01"))
+    return format(quantized, "f").replace(".", ",")

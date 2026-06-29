@@ -16,6 +16,10 @@ def get_spreadsheet() -> gspread.Spreadsheet:
     return gc.open_by_key(SPREADSHEET_ID)
 
 
+def get_spreadsheet_url() -> str:
+    return f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/edit"
+
+
 def find_worksheet_case_insensitive(
     spreadsheet: gspread.Spreadsheet, worksheet_name: str
 ) -> gspread.Worksheet:
@@ -24,4 +28,3 @@ def find_worksheet_case_insensitive(
         if normalize_text(ws.title) == target:
             return ws
     raise ValueError(f"Лист '{worksheet_name}' не найден в таблице")
-

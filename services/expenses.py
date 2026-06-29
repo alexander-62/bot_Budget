@@ -4,6 +4,7 @@ from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 import gspread
 
 from constants import EXPENSES_SHEET_NAME
+from services.budget import get_current_month_key
 from services.google_sheets import find_worksheet_case_insensitive, get_spreadsheet
 
 
@@ -51,13 +52,8 @@ def _get_next_expense_row(worksheet: gspread.Worksheet) -> int:
     last_filled_row = 1
 
     for idx, row in enumerate(all_rows[1:], start=2):
-        a = row[0].strip() if len(row) > 0 else ""
-        b = row[1].strip() if len(row) > 1 else ""
-        c = row[2].strip() if len(row) > 2 else ""
-        d = row[3].strip() if len(row) > 3 else ""
-        e = row[4].strip() if len(row) > 4 else ""
-        f = row[5].strip() if len(row) > 5 else ""
-        if any([a, b, c, d, e, f]):
+        values = [(row[col].strip() if len(row) > col else "") for col in range(7)]
+        if any(values):
             last_filled_row = idx
 
     return last_filled_row + 1
@@ -73,11 +69,13 @@ def write_expense(
     spreadsheet = get_spreadsheet()
     worksheet = find_worksheet_case_insensitive(spreadsheet, EXPENSES_SHEET_NAME)
     next_row = _get_next_expense_row(worksheet)
-    today = datetime.now().strftime("%d.%m.%y")
+    today = datetime.now().strftime("%Y-%m-%d")
+    month_key = get_current_month_key()
+    numeric_amount = float(amount.replace(" ", "").replace(",", "."))
 
     worksheet.update(
-        f"A{next_row}:F{next_row}",
-        [[today, username, category, subcategory, amount, comment]],
+        range_name=f"A{next_row}:G{next_row}",
+        values=[[today, month_key, username, category, subcategory, numeric_amount, comment]],
         raw=False,
     )
 
@@ -93,13 +91,13 @@ def get_recent_expenses(limit: int = 5) -> list[tuple[str, str, str, str, str, s
     expenses: list[tuple[str, str, str, str, str, str]] = []
     for row in all_rows[1:]:
         date_value = row[0].strip() if len(row) > 0 else ""
-        username_value = row[1].strip() if len(row) > 1 else ""
-        category_value = row[2].strip() if len(row) > 2 else ""
-        subcategory_value = row[3].strip() if len(row) > 3 else ""
-        amount_value = row[4].strip() if len(row) > 4 else ""
-        comment_value = row[5].strip() if len(row) > 5 else ""
+        username_value = row[2].strip() if len(row) > 2 else ""
+        category_value = row[3].strip() if len(row) > 3 else ""
+        subcategory_value = row[4].strip() if len(row) > 4 else ""
+        amount_value = row[5].strip() if len(row) > 5 else ""
+        comment_value = row[6].strip() if len(row) > 6 else ""
 
-        if not (date_value and username_value and subcategory_value and amount_value):
+        if not (date_value and subcategory_value and amount_value):
             continue
 
         expenses.append(
