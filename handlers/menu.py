@@ -1,10 +1,12 @@
 import asyncio
 import logging
 import os
+import subprocess
 import sys
 from calendar import monthrange
 from datetime import date
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+from pathlib import Path
 
 from aiogram import Router, types
 from aiogram.filters import CommandStart
@@ -17,6 +19,9 @@ from services.access import check_access_callback, check_access_message
 from services.budget import get_budget_limits, get_category_details, get_month_totals
 from services.expenses import get_recent_expenses
 from services.google_sheets import get_spreadsheet_url
+from version import __version__
+
+BASE_DIR = Path(__file__).resolve().parents[1]
 
 router = Router()
 _restart_in_progress = False
@@ -131,6 +136,47 @@ async def _restart_process_after_delay(delay_seconds: int = 5) -> None:
     os.execv(sys.executable, [sys.executable, *sys.argv])
 
 
+def _run_git_pull() -> tuple[bool, str, str]:
+    before = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=BASE_DIR,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+    )
+    if before.returncode != 0:
+        return False, "", before.stderr.strip() or before.stdout.strip()
+
+    pull = subprocess.run(
+        ["git", "pull", "--ff-only", "origin", "main"],
+        cwd=BASE_DIR,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+    )
+    if pull.returncode != 0:
+        message = (pull.stderr or pull.stdout).strip()
+        return False, "", message
+
+    after = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=BASE_DIR,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+    )
+    if after.returncode != 0:
+        return False, "", after.stderr.strip() or after.stdout.strip()
+
+    return True, before.stdout.strip(), after.stdout.strip()
+
+
 @router.message(CommandStart())
 async def cmd_start(message: types.Message) -> None:
     if not await check_access_message(message):
@@ -169,7 +215,25 @@ async def restart_handler(message: types.Message) -> None:
 
     _restart_in_progress = True
     logging.warning("Запрошен удаленный перезапуск бота пользователем @%s", message.from_user.username if message.from_user else "unknown")
-    await message.answer("Перезапускаюсь. Вернусь через 5 секунд.")
+    await message.answer("Проверяю обновления...")
+
+    try:
+        updated, before_sha, after_sha = await asyncio.to_thread(_run_git_pull)
+    except Exception:
+        logging.exception("Ошибка обновления из GitHub")
+        _restart_in_progress = False
+        await message.answer("Не удалось обновиться. Попробуйте позже.")
+        return
+
+    if not updated:
+        _restart_in_progress = False
+        await message.answer("Не удалось обновиться. Попробуйте позже.")
+        return
+
+    if before_sha == after_sha:
+        await message.answer(f"Обновление не найдено. Перезапускаюсь. Версия: {__version__}")
+    else:
+        await message.answer(f"Обновление установлено. Перезапускаюсь. Версия: {__version__}")
     asyncio.create_task(_restart_process_after_delay(5))
 
 

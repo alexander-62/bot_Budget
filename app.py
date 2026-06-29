@@ -12,6 +12,7 @@ from handlers.expenses import router as expenses_router
 from handlers.menu import router as menu_router
 from handlers.shopping import router as shopping_router
 from services.access import get_allowed_chat_ids
+from version import __version__
 
 
 def setup_logging() -> None:
@@ -77,7 +78,7 @@ async def notify_startup(bot: Bot) -> None:
     sent = 0
     for chat_id in chat_ids:
         try:
-            await bot.send_message(chat_id=chat_id, text="Бот запущен")
+            await bot.send_message(chat_id=chat_id, text=f"Бот запущен. Версия: {__version__}")
             sent += 1
         except Exception:
             logging.exception("Не удалось отправить стартовое сообщение в chat_id=%s", chat_id)
@@ -90,7 +91,7 @@ async def main() -> None:
     web_runner = await start_web_server()
     bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
     dp = create_dispatcher()
-    logging.info("Бот запущен...")
+    logging.info("Бот запущен. Версия: %s", __version__)
     try:
         await notify_startup(bot)
         await dp.start_polling(bot)
