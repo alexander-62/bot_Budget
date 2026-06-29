@@ -164,6 +164,22 @@ def _run_git_pull() -> tuple[bool, str, str]:
             log_message=(git_check.stderr or git_check.stdout).strip(),
         )
 
+    fetch = subprocess.run(
+        ["git", "fetch", "origin", "main"],
+        cwd=BASE_DIR,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+    )
+    if fetch.returncode != 0:
+        return GitPullResult(
+            ok=False,
+            user_message="Не удалось обновиться: не удалось получить обновления из GitHub.",
+            log_message=(fetch.stderr or fetch.stdout).strip(),
+        )
+
     branch = subprocess.run(
         ["git", "branch", "--show-current"],
         cwd=BASE_DIR,
@@ -182,11 +198,32 @@ def _run_git_pull() -> tuple[bool, str, str]:
 
     current_branch = branch.stdout.strip()
     if current_branch.lower() != "main":
-        return GitPullResult(
-            ok=False,
-            user_message=f"Не удалось обновиться: бот запущен не из ветки main, а из {current_branch or 'unknown'}.",
-            log_message=f"Unexpected branch for remote restart: {current_branch!r}",
+        switch = subprocess.run(
+            ["git", "switch", "main"],
+            cwd=BASE_DIR,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            check=False,
         )
+        if switch.returncode != 0:
+            create_main = subprocess.run(
+                ["git", "switch", "-c", "main", "--track", "origin/main"],
+                cwd=BASE_DIR,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                check=False,
+            )
+            if create_main.returncode != 0:
+                return GitPullResult(
+                    ok=False,
+                    user_message="Не удалось обновиться: не получилось создать локальную ветку main.",
+                    log_message=(create_main.stderr or create_main.stdout).strip(),
+                )
+        current_branch = "main"
 
     before = subprocess.run(
         ["git", "rev-parse", "HEAD"],
