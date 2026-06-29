@@ -30,3 +30,4 @@ See: `.planning/PROJECT.md` (updated 2026-06-29)
 - Phase 5 added startup/schema validation and clearer local process diagnostics.
 - Phase 6 added focused tests plus real smoke verification in `.venv`.
 - Phase 7 enabled autosave expense entry with edit/repeat/fresh next actions.
+- 2026-06-29: Restored inline keyboard `style=` hints in `keyboards/expenses.py`, `keyboards/limits.py`, and `keyboards/shopping.py` so Telegram can render the previous colored button style again.
