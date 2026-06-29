@@ -42,14 +42,27 @@ if exist "manage_bot.py" (
 
 echo.
 echo === Обновление из GitHub ===
-for /f "usebackq delims=" %%I in (`"%GIT_EXE%" branch --show-current 2^>nul`) do set "CURRENT_BRANCH=%%I"
-if /I not "%CURRENT_BRANCH%"=="main" (
+"%GIT_EXE%" fetch origin main
+if errorlevel 1 (
     echo.
-    echo Этот скрипт должен запускаться из локальной ветки main.
-    echo Сейчас активна ветка: %CURRENT_BRANCH%
-    echo Переключи репозиторий на main и запусти батник снова.
+    echo Не удалось получить обновления из GitHub.
     pause
     exit /b 1
+)
+
+set "CURRENT_BRANCH="
+for /f "usebackq delims=" %%I in (`"%GIT_EXE%" branch --show-current 2^>nul`) do set "CURRENT_BRANCH=%%I"
+if /I not "%CURRENT_BRANCH%"=="main" (
+    "%GIT_EXE%" switch main
+    if errorlevel 1 (
+        "%GIT_EXE%" switch -c main --track origin/main
+        if errorlevel 1 (
+            echo.
+            echo Не удалось переключиться на main.
+            pause
+            exit /b 1
+        )
+    )
 )
 
 "%GIT_EXE%" pull --ff-only origin main

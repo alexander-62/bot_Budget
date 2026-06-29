@@ -32,3 +32,4 @@ See: `.planning/PROJECT.md` (updated 2026-06-29)
 - Phase 7 enabled autosave expense entry with edit/repeat/fresh next actions.
 - 2026-06-29: Restored inline keyboard `style=` hints in `keyboards/expenses.py`, `keyboards/limits.py`, and `keyboards/shopping.py` so Telegram can render the previous colored button style again.
 - 2026-06-29: Remote restart now fetches `origin/main` and switches to local `main` automatically before pulling updates.
+- 2026-06-29: `update_bot.bat` now fetches origin/main and auto-switches or creates local `main` before pulling updates.
