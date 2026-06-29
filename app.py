@@ -1,4 +1,5 @@
-﻿import asyncio
+import asyncio
+import json
 import logging
 from pathlib import Path
 
@@ -15,6 +16,8 @@ from services.async_tools import run_blocking
 from services.access import get_allowed_chat_ids
 from services.startup_validation import StartupValidationError, validate_startup
 from version import __version__
+
+RESTART_NOTICE_FILE = Path(__file__).resolve().parent / ".restart_notice.json"
 
 
 def setup_logging() -> None:
@@ -94,6 +97,41 @@ async def notify_startup(bot: Bot) -> None:
     logging.info("Стартовая рассылка завершена: отправлено %s из %s", sent, len(chat_ids))
 
 
+async def notify_restart_complete(bot: Bot) -> None:
+    if not RESTART_NOTICE_FILE.exists():
+        return
+
+    try:
+        notice = json.loads(RESTART_NOTICE_FILE.read_text(encoding="utf-8"))
+    except Exception:
+        logging.exception("Не удалось прочитать marker перезапуска")
+        try:
+            RESTART_NOTICE_FILE.unlink()
+        except Exception:
+            logging.exception("Не удалось удалить поврежденный marker перезапуска")
+        return
+
+    chat_id = notice.get("chat_id")
+    if not isinstance(chat_id, int):
+        logging.warning("Marker перезапуска не содержит корректный chat_id")
+        try:
+            RESTART_NOTICE_FILE.unlink()
+        except Exception:
+            logging.exception("Не удалось удалить marker перезапуска")
+        return
+
+    try:
+        await bot.send_message(chat_id=chat_id, text=f"Бот снова запущен. Версия: {__version__}")
+    except Exception:
+        logging.exception("Не удалось отправить сообщение о завершении перезапуска chat_id=%s", chat_id)
+        return
+
+    try:
+        RESTART_NOTICE_FILE.unlink()
+    except Exception:
+        logging.exception("Не удалось удалить marker перезапуска после отправки")
+
+
 async def main() -> None:
     setup_logging()
     try:
@@ -108,6 +146,7 @@ async def main() -> None:
     logging.info("Бот запущен. Версия: %s", __version__)
     try:
         await notify_startup(bot)
+        await notify_restart_complete(bot)
         await dp.start_polling(bot)
     finally:
         await web_runner.cleanup()

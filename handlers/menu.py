@@ -25,6 +25,7 @@ from services.google_sheets import get_spreadsheet_url
 from version import __version__
 
 BASE_DIR = Path(__file__).resolve().parents[1]
+RESTART_NOTICE_FILE = BASE_DIR / ".restart_notice.json"
 
 router = Router()
 _restart_in_progress = False
@@ -69,6 +70,19 @@ def _format_remaining_with_alert(value: str) -> str:
     if dec_value < 0:
         return f"{formatted} ⚠️"
     return formatted
+
+
+def _write_restart_notice(chat_id: int, username: str | None) -> None:
+    RESTART_NOTICE_FILE.write_text(
+        json.dumps(
+            {
+                "chat_id": chat_id,
+                "username": username,
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
 
 
 async def _send_limits(target_message: types.Message) -> None:
@@ -352,6 +366,16 @@ async def restart_handler(message: types.Message) -> None:
 
     _restart_in_progress = True
     logging.warning("Запрошен удаленный перезапуск бота пользователем @%s", message.from_user.username if message.from_user else "unknown")
+    try:
+        _write_restart_notice(
+            chat_id=message.chat.id,
+            username=message.from_user.username if message.from_user else None,
+        )
+    except Exception:
+        logging.exception("Не удалось записать marker перезапуска")
+        _restart_in_progress = False
+        await message.answer("Не удалось подготовить перезапуск. Попробуйте позже.")
+        return
     await message.answer("Проверяю обновления...")
 
     try:

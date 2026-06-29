@@ -6,12 +6,14 @@ import subprocess
 import sys
 import re
 from pathlib import Path
+from urllib.parse import urlparse, urlunparse
 
-from config import WEBAPP_HOST, WEBAPP_PORT
+from config import WEBAPP_HOST, WEBAPP_PORT, WEBAPP_URL
 
 
 BASE_DIR = Path(__file__).resolve().parent
 PID_FILE = BASE_DIR / ".bot.pid"
+PORT_FILE = BASE_DIR / ".bot.port"
 LOG_FILE = BASE_DIR / "bot.log"
 
 
@@ -28,9 +30,27 @@ def _write_pid(pid: int) -> None:
     PID_FILE.write_text(str(pid), encoding="utf-8")
 
 
+def _read_port() -> int | None:
+    if not PORT_FILE.exists():
+        return None
+    try:
+        return int(PORT_FILE.read_text(encoding="utf-8").strip())
+    except Exception:
+        return None
+
+
+def _write_port(port: int) -> None:
+    PORT_FILE.write_text(str(port), encoding="utf-8")
+
+
 def _clear_pid() -> None:
     if PID_FILE.exists():
         PID_FILE.unlink()
+
+
+def _clear_port() -> None:
+    if PORT_FILE.exists():
+        PORT_FILE.unlink()
 
 
 def _is_running(pid: int) -> bool:
@@ -47,6 +67,23 @@ def _is_webapp_port_busy() -> bool:
             return True
     except OSError:
         return False
+
+
+def _is_port_free(port: int) -> bool:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 0)
+        try:
+            sock.bind((WEBAPP_HOST, port))
+        except OSError:
+            return False
+        return True
+
+
+def _select_webapp_port(start_port: int) -> int:
+    for port in range(start_port, 65536):
+        if _is_port_free(port):
+            return port
+    raise RuntimeError(f"No free port found at or above {start_port}.")
 
 
 def _find_webapp_port_owner_pid() -> int | None:
@@ -74,6 +111,24 @@ def _find_webapp_port_owner_pid() -> int | None:
             except ValueError:
                 return None
     return None
+
+
+def _build_runtime_webapp_url(port: int) -> str:
+    parsed = urlparse(WEBAPP_URL)
+    if not WEBAPP_URL or "example.com" in WEBAPP_URL:
+        return f"http://{WEBAPP_HOST}:{port}/webapp"
+    if parsed.scheme and parsed.netloc and parsed.hostname in {"127.0.0.1", "localhost", WEBAPP_HOST}:
+        return urlunparse(parsed._replace(netloc=f"{parsed.hostname}:{port}"))
+
+    return WEBAPP_URL
+
+
+def _build_runtime_env(port: int) -> dict[str, str]:
+    env = os.environ.copy()
+    env["BOT_BUDGET_WEBAPP_HOST"] = WEBAPP_HOST
+    env["BOT_BUDGET_WEBAPP_PORT"] = str(port)
+    env["BOT_BUDGET_WEBAPP_URL"] = _build_runtime_webapp_url(port)
+    return env
 
 
 def _describe_pid(pid: int) -> str | None:
@@ -116,9 +171,16 @@ def start_bot(background: bool = True) -> None:
         print(f"Bot is already running (PID {pid}).")
         return
 
+    runtime_port = WEBAPP_PORT
     if _is_webapp_port_busy():
-        print(f"{_format_port_busy_message()} Stop old bot process or free port before start.")
-        return
+        try:
+            runtime_port = _select_webapp_port(WEBAPP_PORT + 1)
+        except RuntimeError as exc:
+            print(str(exc))
+            return
+        print(
+            f"{_format_port_busy_message()} Switching Web App to next free port {runtime_port}."
+        )
 
     if background:
         with LOG_FILE.open("a", encoding="utf-8") as log_file:
@@ -126,16 +188,23 @@ def start_bot(background: bool = True) -> None:
                 "stdout": log_file,
                 "stderr": log_file,
                 "cwd": str(BASE_DIR),
+                "env": _build_runtime_env(runtime_port),
             }
             if os.name == "nt":
                 kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP  # type: ignore[attr-defined]
             process = subprocess.Popen([sys.executable, "bot.py"], **kwargs)
         _write_pid(process.pid)
+        _write_port(runtime_port)
         print(f"Bot started in background (PID {process.pid}). Log: {LOG_FILE.name}")
         return
 
     print("Starting in foreground. Stop with Ctrl+C")
-    subprocess.run([sys.executable, "bot.py"], cwd=str(BASE_DIR), check=False)
+    subprocess.run(
+        [sys.executable, "bot.py"],
+        cwd=str(BASE_DIR),
+        check=False,
+        env=_build_runtime_env(runtime_port),
+    )
 
 
 def stop_bot() -> None:
@@ -162,22 +231,29 @@ def stop_bot() -> None:
         print(f"Bot stopped (PID {pid}).")
     finally:
         _clear_pid()
+        _clear_port()
 
 
 def status_bot() -> None:
     pid = _read_pid()
+    runtime_port = _read_port() or WEBAPP_PORT
     if not pid:
-        if _is_webapp_port_busy():
-            print(f"Bot PID file missing, but {_format_port_busy_message().lower()}")
-        else:
+        if _is_port_free(runtime_port):
             print("Bot is not running in background (no PID file).")
+        else:
+            print(
+                f"Bot PID file missing, but Web App port {WEBAPP_HOST}:{runtime_port} is busy."
+            )
         return
 
     if _is_running(pid):
-        print(f"Bot is running in background (PID {pid}).")
+        print(f"Bot is running in background (PID {pid}, Web App port {runtime_port}).")
     else:
-        if _is_webapp_port_busy():
-            print(f"PID file exists, bot process is not active, but {_format_port_busy_message().lower()}")
+        if not _is_port_free(runtime_port):
+            print(
+                f"PID file exists, bot process is not active, but "
+                f"Web App port {WEBAPP_HOST}:{runtime_port} is busy."
+            )
         else:
             print("PID file exists, but process is not active.")
 

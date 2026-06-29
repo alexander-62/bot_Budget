@@ -12,24 +12,24 @@ python bot.py
 
 Остановка: `Ctrl+C` (без длинного traceback).
 
-### Управление из консоли (старт/стоп/рестарт)
+### Управление из консоли
+
+Основной входной файл:
 
 ```bash
-python manage_bot.py start
-python manage_bot.py status
-python manage_bot.py stop
-python manage_bot.py restart
+bot.bat start
+bot.bat restart
+bot.bat update
+bot.bat status
+bot.bat stop
 ```
 
-- `start` запускает бота в фоне.
+Совместимые обёртки тоже остались: `start_bot.bat`, `restart_bot.bat`, `update_bot.bat`.
+
+- `bot.bat start` запускает бота в фоне.
+- `bot.bat start --foreground` запускает бота в текущей консоли.
 - Логи фонового процесса пишутся в `bot.log`.
-- Если `WEBAPP_HOST:WEBAPP_PORT` уже занят, менеджер напишет понятную ошибку вместо второго старта.
-
-Если нужен запуск в текущей консоли через менеджер:
-
-```bash
-python manage_bot.py start --foreground
-```
+- Если `WEBAPP_HOST:WEBAPP_PORT` уже занят, менеджер попробует следующий свободный порт и передаст его в запуск.
 
 Команда `Перезапуск` в чате сначала проверяет, что бот запущен из локальной ветки `main`, потом делает `git pull --ff-only origin main`, а затем перезапускает процесс.
 Если обновление не удалось, бот теперь пишет более точную причину: не `main`, нет Git, нет сети, локальная ветка не fast-forward или есть локальные изменения.
@@ -48,11 +48,11 @@ python manage_bot.py start --foreground
 ### Обновление из GitHub на другом компьютере
 
 ```bat
-update_bot.bat
+bot.bat update
 ```
 
-Скрипт остановит бота, выполнит `git pull --ff-only origin main` и затем запустит его снова через `start_bot.bat`.
-Если Git не установлен, `update_bot.bat` попробует поставить его через `winget`.
+Скрипт остановит бота, выполнит `git pull --ff-only origin main` и затем запустит его снова.
+Если Git не установлен, `bot.bat update` попробует поставить его через `winget`.
 
 ## Логи
 

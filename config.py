@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 import secrets as app_secrets
@@ -19,12 +20,22 @@ def _get_optional_setting(name: str, default):
     return value
 
 
+def _get_runtime_override(name: str, default: str) -> str:
+    value = os.getenv(f"BOT_BUDGET_{name}")
+    if value is not None and value.strip():
+        return value.strip()
+    return default
+
+
 BOT_TOKEN = _require_secret_name("BOT_TOKEN")
 GOOGLE_CREDENTIALS_FILE = _require_secret_name("GOOGLE_CREDENTIALS_FILE")
 SPREADSHEET_ID = _require_secret_name("SPREADSHEET_ID")
-WEBAPP_URL = _get_optional_setting("WEBAPP_URL", "https://example.com/webapp")
-WEBAPP_HOST = _get_optional_setting("WEBAPP_HOST", "127.0.0.1")
-WEBAPP_PORT = int(_get_optional_setting("WEBAPP_PORT", 8080))
+WEBAPP_HOST = _get_runtime_override("WEBAPP_HOST", _get_optional_setting("WEBAPP_HOST", "127.0.0.1"))
+WEBAPP_PORT = int(_get_runtime_override("WEBAPP_PORT", str(_get_optional_setting("WEBAPP_PORT", 8080))))
+WEBAPP_URL = _get_runtime_override(
+    "WEBAPP_URL",
+    _get_optional_setting("WEBAPP_URL", f"http://{WEBAPP_HOST}:{WEBAPP_PORT}/webapp"),
+)
 
 
 def get_credentials_path() -> Path:
