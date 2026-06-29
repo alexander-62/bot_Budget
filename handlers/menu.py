@@ -123,7 +123,7 @@ async def _send_recent_expenses(target_message: types.Message, limit: int = 5) -
 
     lines = [f"Последние {len(recent)} трат:"]
     for idx, (date_value, username_value, category_value, subcategory_value, amount_value, comment_value) in enumerate(
-        reversed(recent),
+        recent,
         start=1,
     ):
         lines.append(f"{idx}. <b>{date_value}</b> | <b>{amount_value}</b> | <b>{subcategory_value}</b>")

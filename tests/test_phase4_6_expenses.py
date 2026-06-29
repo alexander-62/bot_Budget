@@ -35,7 +35,13 @@ class FakeWorksheet:
 
     def append_row(self, values, value_input_option="RAW", insert_data_option=None, table_range=None):
         self.append_row_calls.append(list(values))
-        self.rows.append([str(value) for value in values])
+        normalized_row = []
+        for value in values:
+            text = str(value)
+            if text.startswith("'"):
+                text = text[1:]
+            normalized_row.append(text)
+        self.rows.append(normalized_row)
         row_number = len(self.rows)
         return {"updates": {"updatedRange": f"{self.title}!A{row_number}:H{row_number}"}}
 
@@ -54,7 +60,13 @@ class FakeWorksheet:
     def update(self, range_name: str, values, raw=False):
         self.update_calls.append((range_name, values, raw))
         row_number = int("".join(ch for ch in range_name.split(":")[0] if ch.isdigit()))
-        self.rows[row_number - 1] = [str(value) for value in values[0]]
+        normalized_row = []
+        for value in values[0]:
+            text = str(value)
+            if text.startswith("'"):
+                text = text[1:]
+            normalized_row.append(text)
+        self.rows[row_number - 1] = normalized_row
 
     def delete_rows(self, row_number: int):
         self.delete_rows_calls.append(row_number)

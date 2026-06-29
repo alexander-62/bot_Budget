@@ -72,6 +72,11 @@ def parse_amount_with_optional_comment(raw_input: str) -> tuple[str, str]:
 _APPENDED_RANGE_RE = re.compile(r"(?:(?:'[^']+'|[^!]+)!)?([A-Z]+)(\d+):([A-Z]+)(\d+)$")
 
 
+def _as_text_cell(value: str) -> str:
+    # Sheets treats a leading apostrophe as an explicit text marker.
+    return f"'{value}"
+
+
 def _extract_row_number_from_append_response(
     response: object,
     worksheet_title: str,
@@ -120,7 +125,7 @@ def write_expense(
     response = worksheet.append_row(
         [
             today,
-            month_key,
+            _as_text_cell(month_key),
             username,
             category,
             subcategory,
@@ -128,7 +133,7 @@ def write_expense(
             comment,
             expense_id,
         ],
-        value_input_option="RAW",
+        value_input_option="USER_ENTERED",
         insert_data_option="INSERT_ROWS",
         table_range="A:H",
     )
@@ -166,7 +171,7 @@ def update_expense(saved_expense: SavedExpense, amount: str, comment: str = "") 
         values=[
             [
                 saved_expense.date,
-                saved_expense.month_key,
+                _as_text_cell(saved_expense.month_key),
                 saved_expense.username,
                 saved_expense.category,
                 saved_expense.subcategory,
@@ -216,8 +221,8 @@ def get_recent_expenses(limit: int = 5) -> list[tuple[str, str, str, str, str, s
     start_row = max(2, last_row - tail_size + 1)
     rows = worksheet.get(f"A{start_row}:G{last_row}") or []
 
-    expenses: list[tuple[str, str, str, str, str, str]] = []
-    for row in rows:
+    expenses: list[tuple[str, str, str, str, str, str, int]] = []
+    for row_offset, row in enumerate(rows, start=start_row):
         date_value = row[0].strip() if len(row) > 0 else ""
         username_value = row[2].strip() if len(row) > 2 else ""
         category_value = row[3].strip() if len(row) > 3 else ""
@@ -236,10 +241,12 @@ def get_recent_expenses(limit: int = 5) -> list[tuple[str, str, str, str, str, s
                 subcategory_value,
                 amount_value,
                 comment_value,
+                row_offset,
             )
         )
 
-    return expenses[-limit:]
+    expenses.sort(key=lambda item: (item[0], item[6]), reverse=True)
+    return [expense[:6] for expense in expenses[:limit]]
 
 
 def _get_expenses_worksheet() -> gspread.Worksheet:

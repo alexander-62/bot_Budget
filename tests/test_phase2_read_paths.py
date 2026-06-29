@@ -155,10 +155,24 @@ class Phase2ReadPathTests(unittest.TestCase):
 
     def test_recent_expenses_reads_bounded_tail_range(self) -> None:
         rows = [["Дата", "Месяц", "Пользователь", "Категория", "Подкатегория", "Сумма", "Комментарий"]]
-        for idx in range(1, 13):
+        dates = [
+            "2026-06-01",
+            "2026-06-03",
+            "2026-06-02",
+            "2026-06-06",
+            "2026-06-05",
+            "2026-06-04",
+            "2026-06-08",
+            "2026-06-07",
+            "2026-06-09",
+            "2026-06-10",
+            "2026-06-12",
+            "2026-06-11",
+        ]
+        for idx, date_value in enumerate(dates, start=1):
             rows.append(
                 [
-                    f"2026-06-{idx:02d}",
+                    date_value,
                     "2026-06",
                     f"@user{idx}",
                     "Еда",
@@ -177,9 +191,9 @@ class Phase2ReadPathTests(unittest.TestCase):
         self.assertEqual(
             recent,
             [
+                ("2026-06-12", "@user11", "Еда", "Подкатегория 11", "11", ""),
+                ("2026-06-11", "@user12", "Еда", "Подкатегория 12", "12", "Комментарий 12"),
                 ("2026-06-10", "@user10", "Еда", "Подкатегория 10", "10", "Комментарий 10"),
-                ("2026-06-11", "@user11", "Еда", "Подкатегория 11", "11", ""),
-                ("2026-06-12", "@user12", "Еда", "Подкатегория 12", "12", "Комментарий 12"),
             ],
         )
         self.assertEqual(expenses_sheet.col_values_calls, 1)
