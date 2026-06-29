@@ -1,4 +1,5 @@
 import asyncio
+import json
 import logging
 import os
 import subprocess
@@ -143,8 +144,31 @@ async def _send_recent_expenses(target_message: types.Message, limit: int = 5) -
 
 
 async def _restart_process_after_delay(delay_seconds: int = 5) -> None:
-    await asyncio.sleep(delay_seconds)
-    os.execv(sys.executable, [sys.executable, *sys.argv])
+    helper_code = (
+        "import subprocess, sys, time\n"
+        f"time.sleep({delay_seconds})\n"
+        f"subprocess.run([sys.executable, 'manage_bot.py', 'start'], cwd={json.dumps(str(BASE_DIR))}, check=False)\n"
+    )
+    kwargs = {
+        "cwd": str(BASE_DIR),
+        "stdin": subprocess.DEVNULL,
+        "stdout": subprocess.DEVNULL,
+        "stderr": subprocess.DEVNULL,
+    }
+    if os.name == "nt":
+        creationflags = 0
+        creationflags |= getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        creationflags |= getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+        if creationflags:
+            kwargs["creationflags"] = creationflags
+
+    try:
+        subprocess.Popen([sys.executable, "-c", helper_code], **kwargs)
+    except Exception:
+        logging.exception("Не удалось запустить helper для перезапуска")
+        return
+
+    os._exit(0)
 
 
 def _run_git_pull() -> tuple[bool, str, str]:
