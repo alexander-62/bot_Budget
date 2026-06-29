@@ -42,6 +42,16 @@ if exist "manage_bot.py" (
 
 echo.
 echo === Обновление из GitHub ===
+for /f "usebackq delims=" %%I in (`"%GIT_EXE%" branch --show-current 2^>nul`) do set "CURRENT_BRANCH=%%I"
+if /I not "%CURRENT_BRANCH%"=="main" (
+    echo.
+    echo Этот скрипт должен запускаться из локальной ветки main.
+    echo Сейчас активна ветка: %CURRENT_BRANCH%
+    echo Переключи репозиторий на main и запусти батник снова.
+    pause
+    exit /b 1
+)
+
 "%GIT_EXE%" pull --ff-only origin main
 if errorlevel 1 (
     echo.
@@ -88,3 +98,5 @@ if errorlevel 1 (
 echo Git не найден. Пытаюсь установить Git for Windows через winget...
 winget install --id Git.Git -e --source winget --silent --accept-package-agreements --accept-source-agreements
 exit /b %errorlevel%
+
+pause
