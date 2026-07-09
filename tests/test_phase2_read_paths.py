@@ -121,11 +121,12 @@ class Phase2ReadPathTests(unittest.TestCase):
         spreadsheet = _build_budget_spreadsheet()
 
         with mock.patch.object(budget, "get_spreadsheet", return_value=spreadsheet):
-            total_limit, categories = budget.get_budget_limits()
-            month_limit, month_spent, month_remaining = budget.get_month_totals()
-            category_title, category_limit, category_spent, category_remaining, subcategories = budget.get_category_details(
-                "Еда"
-            )
+            with mock.patch.object(budget, "get_current_month_key", return_value="2026-06"):
+                total_limit, categories = budget.get_budget_limits()
+                month_limit, month_spent, month_remaining = budget.get_month_totals()
+                category_title, category_limit, category_spent, category_remaining, subcategories = budget.get_category_details(
+                    "Еда"
+                )
 
             self.assertEqual(total_limit, "175,00")
             self.assertEqual(categories, ["Еда", "Дом"])
@@ -147,7 +148,8 @@ class Phase2ReadPathTests(unittest.TestCase):
             self.assertEqual(expenses_ws.all_values_calls, 1)
 
             budget.clear_budget_snapshot_cache()
-            budget.get_budget_limits()
+            with mock.patch.object(budget, "get_current_month_key", return_value="2026-06"):
+                budget.get_budget_limits()
 
             self.assertEqual(categories_ws.all_values_calls, 2)
             self.assertEqual(limits_ws.all_values_calls, 2)

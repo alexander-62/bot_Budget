@@ -1,7 +1,7 @@
 # Requirements: Bot Budget Optimization
 
 **Defined:** 2026-06-29
-**Core Value:** Users can record expenses in Telegram quickly and reliably without waiting on unnecessary Google Sheets work.
+**Core Value:** Users can record expenses in Telegram quickly and reliably, and the household gets a daily reminder with a shared category summary so missed expenses are caught the same evening.
 
 ## v1 Requirements
 
@@ -45,6 +45,15 @@
 - [x] **UX-03**: The post-save message provides "Добавить ещё в эту категорию" to enter another amount using the same category and subcategory context.
 - [x] **UX-04**: The post-save message provides "Добавить другую трату" to start a fresh expense flow from category selection.
 - [x] **UX-05**: Edit/delete behavior is safe against stale callbacks and does not corrupt later expenses.
+
+### Daily Digest Reminder
+
+- [x] **DIGEST-01**: Bot sends an evening digest to every `Users` row with a valid `chat_id/user_id` unless `digest_enabled` is explicitly disabled.
+- [x] **DIGEST-02**: Empty `digest_enabled` means enabled by default; explicit disabled values include `FALSE`, `0`, `no`, `нет`, `выкл`, and `выключено`.
+- [x] **DIGEST-03**: Digest content is the shared total of all expenses recorded for the current day, grouped only by category and not split by user or subcategory.
+- [x] **DIGEST-04**: Bot still sends the evening reminder when no expenses were recorded today.
+- [x] **DIGEST-05**: Successful sends update `last_digest_date` per recipient so restart or repeated scheduler checks do not duplicate the same day's digest.
+- [x] **DIGEST-06**: No Telegram settings UI is added for digest configuration; recipient control remains in Google Sheets and global timing remains in code/config.
 
 ## v2 Requirements
 
@@ -98,12 +107,18 @@
 | UX-03 | Phase 7 | Complete |
 | UX-04 | Phase 7 | Complete |
 | UX-05 | Phase 7 | Complete |
+| DIGEST-01 | Phase 8 | Complete |
+| DIGEST-02 | Phase 8 | Complete |
+| DIGEST-03 | Phase 8 | Complete |
+| DIGEST-04 | Phase 8 | Complete |
+| DIGEST-05 | Phase 8 | Complete |
+| DIGEST-06 | Phase 8 | Complete |
 
 **Coverage:**
-- v1 requirements: 23 total
-- Mapped to phases: 23
+- v1 requirements: 29 total
+- Mapped to phases: 29
 - Unmapped: 0
 
 ---
 *Requirements defined: 2026-06-29*
-*Last updated: 2026-06-29 after phase 7*
+*Last updated: 2026-07-09 for phase 8 daily digest*

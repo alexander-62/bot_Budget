@@ -6,7 +6,9 @@
 
 ## Overview
 
-This roadmap improves the existing Google Sheets-backed Telegram budget bot in risk order. It first reduces avoidable Sheets overhead, then makes blocking I/O safer for the async bot, then prepares expense writes for post-save actions, then adds tests and operational guardrails. The UX autosave flow is intentionally last because it depends on saved-expense identity and safer write behavior.
+This roadmap improves the existing Google Sheets-backed Telegram budget bot in risk order. The first milestone reduced avoidable Sheets overhead, made blocking I/O safer for the async bot, prepared expense writes for post-save actions, added tests and operational guardrails, and shipped autosave expense entry.
+
+Phase 8 added an evening daily digest reminder: a shared category-level summary of today's expenses is sent to every enabled user, and an empty-day reminder still prompts the household to record missed expenses.
 
 ## Phases
 
@@ -141,6 +143,27 @@ This roadmap improves the existing Google Sheets-backed Telegram budget bot in r
 - Keep this phase last because the UX depends on reliable saved expense identity.
 - If full edit/delete is too risky in one pass, ship autosave plus next-action buttons first and keep edit as a guarded follow-up inside the phase plan.
 
+### Phase 8: Evening Daily Digest
+
+**Goal:** Send an evening reminder with today's shared expense totals grouped by category to every enabled recipient.
+**Mode:** mvp
+**Status:** complete
+
+**Requirements:** DIGEST-01, DIGEST-02, DIGEST-03, DIGEST-04, DIGEST-05, DIGEST-06
+
+**Success Criteria:**
+1. Recipients are read from `Users` rows with valid `chat_id/user_id`.
+2. `digest_enabled` defaults to enabled when blank and disables only on explicit false-like values.
+3. The daily digest reads all expenses for the current day and groups totals by category only.
+4. Users receive a reminder even when today's expense list is empty.
+5. Successful sends write `last_digest_date` for each recipient and avoid duplicate same-day sends.
+6. The feature adds no Telegram settings UI.
+7. Tests cover recipient parsing, category aggregation, empty-day message formatting, and no live Google Sheets calls.
+
+**Notes:**
+- Required `Users` headers for the digest are `digest_enabled` and `last_digest_date`.
+- Keep scheduler work outside Telegram handlers and run blocking Sheets calls through the async boundary.
+
 ## Next Step
 
-Milestone complete. Run milestone audit/cleanup or define next milestone requirements.
+Phase 8 complete. Next step is runtime rollout: add the `digest_enabled` and `last_digest_date` headers to the live `Users` sheet, restart the bot, and observe the first evening send.

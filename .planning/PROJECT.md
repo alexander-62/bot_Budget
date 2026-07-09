@@ -8,7 +8,7 @@ The current improvement project keeps Google Sheets as the visible data store, b
 
 ## Core Value
 
-Users can record expenses in Telegram quickly and reliably without waiting on unnecessary Google Sheets work.
+Users can record expenses in Telegram quickly and reliably, and the household gets a daily reminder with a shared category summary so missed expenses are caught the same evening.
 
 ## Requirements
 
@@ -20,6 +20,7 @@ Users can record expenses in Telegram quickly and reliably without waiting on un
 - Existing users can add expenses through a category, subcategory, and amount flow with autosave and post-save actions.
 - Existing users can view recent expenses from the expenses worksheet.
 - Existing users can add, remove, and clear shopping-list items.
+- Existing enabled users receive an evening reminder with today's shared category totals, including empty-day reminders.
 - Existing process manager can start, stop, restart, and check the bot process.
 - Bot keeps Google Sheets calls off critical async handler paths.
 - Expense writes are append-safe and return saved row identity plus `expense_id`.
@@ -28,7 +29,7 @@ Users can record expenses in Telegram quickly and reliably without waiting on un
 - Runtime smoke check passes under installed dependencies.
 
 ### Active
-- None for this milestone. Milestone complete.
+- None for current implementation slice. Phase 8 implementation complete; live rollout requires the `Users` sheet headers.
 
 ### Out of Scope
 
@@ -67,6 +68,7 @@ Important current behavior:
 | Add both post-save buttons: same category and different expense | Repeated entry should support fast same-category entry and a fresh category flow. | Complete |
 | Use sequential phase execution | The bot is small and many changes touch shared services/handlers. | Complete |
 | Use generated `expense_id` in column `H` for stale-safe edit/delete | Row number alone is not enough when rows can shift. | Complete |
+| Configure daily digest recipients only through Google Sheets | The user wants no Telegram settings UI for this feature; `Users` remains the admin-controlled configuration surface. | Complete |
 
 ## Phase Notes
 
@@ -77,6 +79,7 @@ Important current behavior:
 - Phase 5 validated startup/schema checks, occupied-port diagnostics, and repo ignore rules for duplicates.
 - Phase 6 validated fake-based unit coverage and a real smoke check under installed dependencies.
 - Phase 7 validated autosave expense entry with edit/repeat/fresh follow-up actions.
+- Phase 8 adds the evening digest reminder milestone slice.
 
 ## Evolution
 
@@ -96,4 +99,4 @@ After each milestone:
 4. Update Context with current state.
 
 ---
-*Last updated: 2026-06-29 after phase 7*
+*Last updated: 2026-07-09 for phase 8 daily digest*

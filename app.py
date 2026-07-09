@@ -12,6 +12,7 @@ from config import BOT_TOKEN, WEBAPP_HOST, WEBAPP_PORT
 from handlers.expenses import router as expenses_router
 from handlers.menu import router as menu_router
 from handlers.shopping import router as shopping_router
+from scheduler import run_daily_digest_scheduler
 from services.async_tools import run_blocking
 from services.access import get_allowed_chat_ids
 from services.startup_validation import StartupValidationError, validate_startup
@@ -144,11 +145,17 @@ async def main() -> None:
     bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
     dp = create_dispatcher()
     logging.info("Бот запущен. Версия: %s", __version__)
+    digest_task = asyncio.create_task(run_daily_digest_scheduler(bot))
     try:
         await notify_startup(bot)
         await notify_restart_complete(bot)
         await dp.start_polling(bot)
     finally:
+        digest_task.cancel()
+        try:
+            await digest_task
+        except asyncio.CancelledError:
+            pass
         await web_runner.cleanup()
 
 

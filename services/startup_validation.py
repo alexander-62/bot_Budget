@@ -24,7 +24,7 @@ class WorksheetRule:
 
 
 _WORKSHEET_RULES = (
-    WorksheetRule(USERS_SHEET_NAME, ("username", "user_id")),
+    WorksheetRule(USERS_SHEET_NAME, ("username", "user_id", "digest_enabled", "last_digest_date")),
     WorksheetRule(CATEGORIES_SHEET_NAME, ("категория", "подкатегория", "активно")),
     WorksheetRule(LIMITS_SHEET_NAME, ("категория", "подкатегория")),
     WorksheetRule(EXPENSES_SHEET_NAME, ("дата", "месяц", "пользователь", "категория", "подкатегория", "сумма")),

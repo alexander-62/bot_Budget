@@ -34,9 +34,10 @@ if fake_types is None:
 
 if not hasattr(fake_types, "InlineKeyboardButton"):
     class InlineKeyboardButton:
-        def __init__(self, text: str, callback_data: str | None = None) -> None:
+        def __init__(self, text: str, callback_data: str | None = None, **kwargs) -> None:
             self.text = text
             self.callback_data = callback_data
+            self.extra = kwargs
 
     fake_types.InlineKeyboardButton = InlineKeyboardButton
 
