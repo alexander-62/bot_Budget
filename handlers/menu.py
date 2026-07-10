@@ -10,7 +10,7 @@ from datetime import date, datetime
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from pathlib import Path
 
-from aiogram import Router, types
+from aiogram import Bot, Router, types
 from aiogram.filters import CommandStart
 from aiogram.types import FSInputFile
 from aiogram.utils.keyboard import InlineKeyboardBuilder
@@ -366,7 +366,7 @@ async def view_recent_expenses_handler(message: types.Message) -> None:
 
 
 @router.message(lambda message: bool(message.text) and message.text.strip().lower() == "лог")
-async def send_log_handler(message: types.Message) -> None:
+async def send_log_handler(message: types.Message, bot: Bot) -> None:
     if not await check_access_message(message):
         return
 
@@ -377,13 +377,14 @@ async def send_log_handler(message: types.Message) -> None:
     export_path: Path | None = None
     try:
         export_path = await asyncio.to_thread(_create_log_export_snapshot)
-        await message.answer_document(
+        await bot.send_document(
+            chat_id=message.chat.id,
             document=FSInputFile(export_path, filename="bot.log.txt"),
             caption="Актуальный bot.log",
         )
     except Exception as exc:
         logging.exception("Не удалось отправить bot.log")
-        await message.answer(f"Не удалось отправить bot.log: {type(exc).__name__}.")
+        await message.answer(f"Не удалось отправить bot.log: {type(exc).__name__}: {exc}")
     finally:
         if export_path is not None:
             try:
