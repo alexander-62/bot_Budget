@@ -12,6 +12,7 @@ from pathlib import Path
 
 from aiogram import Router, types
 from aiogram.filters import CommandStart
+from aiogram.types import FSInputFile
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from constants import MENU_LIMITS_CALLBACK, MENU_VIEW_EXPENSES_TEXT, MENU_VIEW_LIMITS_TEXT
@@ -26,6 +27,7 @@ from version import __version__
 
 BASE_DIR = Path(__file__).resolve().parents[1]
 RESTART_NOTICE_FILE = BASE_DIR / ".restart_notice.json"
+BOT_LOG_FILE = BASE_DIR / "bot.log"
 
 router = Router()
 _restart_in_progress = False
@@ -351,6 +353,25 @@ async def view_recent_expenses_handler(message: types.Message) -> None:
     if not await check_access_message(message):
         return
     await _send_recent_expenses(message, limit=5)
+
+
+@router.message(lambda message: bool(message.text) and message.text.strip().lower() == "лог")
+async def send_log_handler(message: types.Message) -> None:
+    if not await check_access_message(message):
+        return
+
+    if not BOT_LOG_FILE.exists() or not BOT_LOG_FILE.is_file():
+        await message.answer("Файл bot.log не найден.")
+        return
+
+    try:
+        await message.answer_document(
+            document=FSInputFile(BOT_LOG_FILE, filename="bot.log.txt"),
+            caption="Актуальный bot.log",
+        )
+    except Exception:
+        logging.exception("Не удалось отправить bot.log")
+        await message.answer("Не удалось отправить bot.log. Попробуйте позже.")
 
 
 @router.message(lambda message: bool(message.text) and message.text.strip().lower() == "перезапуск")
