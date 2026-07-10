@@ -1,7 +1,37 @@
+import importlib.util
 import os
+import sys
+import sysconfig
 from pathlib import Path
 
-import secrets as app_secrets
+
+BASE_DIR = Path(__file__).resolve().parent
+
+
+def _load_local_secrets():
+    secrets_path = BASE_DIR / "secrets.py"
+    spec = importlib.util.spec_from_file_location("_bot_budget_local_secrets", secrets_path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError("Unable to load local secrets.py.")
+
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _restore_stdlib_secrets_module() -> None:
+    secrets_path = Path(sysconfig.get_paths()["stdlib"]) / "secrets.py"
+    spec = importlib.util.spec_from_file_location("secrets", secrets_path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError("Unable to load Python stdlib secrets module.")
+
+    module = importlib.util.module_from_spec(spec)
+    sys.modules["secrets"] = module
+    spec.loader.exec_module(module)
+
+
+app_secrets = _load_local_secrets()
+_restore_stdlib_secrets_module()
 
 
 def _require_secret_name(name: str) -> str:
