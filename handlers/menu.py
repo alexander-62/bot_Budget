@@ -6,7 +6,7 @@ import subprocess
 import sys
 from calendar import monthrange
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from pathlib import Path
 
@@ -28,6 +28,7 @@ from version import __version__
 BASE_DIR = Path(__file__).resolve().parents[1]
 RESTART_NOTICE_FILE = BASE_DIR / ".restart_notice.json"
 BOT_LOG_FILE = BASE_DIR / "bot.log"
+LOG_EXPORT_DIR = BASE_DIR / ".log_exports"
 
 router = Router()
 _restart_in_progress = False
@@ -85,6 +86,15 @@ def _write_restart_notice(chat_id: int, username: str | None) -> None:
         ),
         encoding="utf-8",
     )
+
+
+def _create_log_export_snapshot() -> Path:
+    LOG_EXPORT_DIR.mkdir(exist_ok=True)
+    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    export_path = LOG_EXPORT_DIR / f"bot-log-{timestamp}.txt"
+    with BOT_LOG_FILE.open("rb") as source, export_path.open("wb") as target:
+        target.write(source.read())
+    return export_path
 
 
 async def _send_limits(target_message: types.Message) -> None:
@@ -364,14 +374,22 @@ async def send_log_handler(message: types.Message) -> None:
         await message.answer("Файл bot.log не найден.")
         return
 
+    export_path: Path | None = None
     try:
+        export_path = await asyncio.to_thread(_create_log_export_snapshot)
         await message.answer_document(
-            document=FSInputFile(BOT_LOG_FILE, filename="bot.log.txt"),
+            document=FSInputFile(export_path, filename="bot.log.txt"),
             caption="Актуальный bot.log",
         )
-    except Exception:
+    except Exception as exc:
         logging.exception("Не удалось отправить bot.log")
-        await message.answer("Не удалось отправить bot.log. Попробуйте позже.")
+        await message.answer(f"Не удалось отправить bot.log: {type(exc).__name__}.")
+    finally:
+        if export_path is not None:
+            try:
+                export_path.unlink(missing_ok=True)
+            except Exception:
+                logging.exception("Не удалось удалить временную копию bot.log")
 
 
 @router.message(lambda message: bool(message.text) and message.text.strip().lower() == "перезапуск")

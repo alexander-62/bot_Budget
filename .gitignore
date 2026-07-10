@@ -46,6 +46,7 @@ Thumbs.db
 credentials.json
 .bot.pid
 bot.log
+.log_exports/
 .restart_notice.json
 .editorconfig
 *.bak_test
