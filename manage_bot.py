@@ -15,6 +15,7 @@ BASE_DIR = Path(__file__).resolve().parent
 PID_FILE = BASE_DIR / ".bot.pid"
 PORT_FILE = BASE_DIR / ".bot.port"
 LOG_FILE = BASE_DIR / "bot.log"
+TRAY_PID_FILE = BASE_DIR / ".tray.pid"
 
 
 def _read_pid() -> int | None:
@@ -26,8 +27,21 @@ def _read_pid() -> int | None:
         return None
 
 
+def _read_tray_pid() -> int | None:
+    if not TRAY_PID_FILE.exists():
+        return None
+    try:
+        return int(TRAY_PID_FILE.read_text(encoding="utf-8").strip())
+    except Exception:
+        return None
+
+
 def _write_pid(pid: int) -> None:
     PID_FILE.write_text(str(pid), encoding="utf-8")
+
+
+def _write_tray_pid(pid: int) -> None:
+    TRAY_PID_FILE.write_text(str(pid), encoding="utf-8")
 
 
 def _read_port() -> int | None:
@@ -51,6 +65,11 @@ def _clear_pid() -> None:
 def _clear_port() -> None:
     if PORT_FILE.exists():
         PORT_FILE.unlink()
+
+
+def _clear_tray_pid() -> None:
+    if TRAY_PID_FILE.exists():
+        TRAY_PID_FILE.unlink()
 
 
 def _is_running(pid: int) -> bool:
@@ -131,6 +150,16 @@ def _build_runtime_env(port: int) -> dict[str, str]:
     return env
 
 
+def _get_windowless_python() -> str:
+    if os.name != "nt":
+        return sys.executable
+
+    pythonw = Path(sys.executable).with_name("pythonw.exe")
+    if pythonw.exists():
+        return str(pythonw)
+    return sys.executable
+
+
 def _describe_pid(pid: int) -> str | None:
     if os.name != "nt":
         return None
@@ -196,6 +225,7 @@ def start_bot(background: bool = True) -> None:
         _write_pid(process.pid)
         _write_port(runtime_port)
         print(f"Bot started in background (PID {process.pid}). Log: {LOG_FILE.name}")
+        start_tray(silent=True)
         return
 
     print("Starting in foreground. Stop with Ctrl+C")
@@ -258,6 +288,56 @@ def status_bot() -> None:
             print("PID file exists, but process is not active.")
 
 
+def start_tray(silent: bool = False) -> None:
+    tray_pid = _read_tray_pid()
+    if tray_pid and _is_running(tray_pid):
+        if not silent:
+            print(f"Tray icon is already running (PID {tray_pid}).")
+        return
+    if tray_pid:
+        _clear_tray_pid()
+
+    with LOG_FILE.open("a", encoding="utf-8") as log_file:
+        kwargs = {
+            "stdout": log_file,
+            "stderr": log_file,
+            "cwd": str(BASE_DIR),
+        }
+        if os.name == "nt":
+            kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP  # type: ignore[attr-defined]
+        process = subprocess.Popen([_get_windowless_python(), "tray_monitor.py"], **kwargs)
+
+    _write_tray_pid(process.pid)
+    if not silent:
+        print(f"Tray icon started (PID {process.pid}).")
+
+
+def stop_tray() -> None:
+    tray_pid = _read_tray_pid()
+    if not tray_pid:
+        print("Tray PID file not found. Tray icon is probably not running.")
+        return
+
+    if not _is_running(tray_pid):
+        print("Tray process is not active. Cleaning tray PID file.")
+        _clear_tray_pid()
+        return
+
+    try:
+        if os.name == "nt":
+            subprocess.run(
+                ["taskkill", "/PID", str(tray_pid), "/T", "/F"],
+                check=False,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        else:
+            os.kill(tray_pid, signal.SIGTERM)
+        print(f"Tray icon stopped (PID {tray_pid}).")
+    finally:
+        _clear_tray_pid()
+
+
 def restart_bot() -> None:
     stop_bot()
     start_bot(background=True)
@@ -277,6 +357,8 @@ def main() -> None:
     sub.add_parser("stop", help="Stop background bot")
     sub.add_parser("restart", help="Restart background bot")
     sub.add_parser("status", help="Show bot status")
+    sub.add_parser("tray", help="Start tray status icon")
+    sub.add_parser("stop-tray", help="Stop tray status icon")
 
     args = parser.parse_args()
 
@@ -291,6 +373,12 @@ def main() -> None:
         return
     if args.command == "status":
         status_bot()
+        return
+    if args.command == "tray":
+        start_tray()
+        return
+    if args.command == "stop-tray":
+        stop_tray()
         return
 
 

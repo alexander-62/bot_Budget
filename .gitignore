@@ -45,6 +45,7 @@ Thumbs.db
 # Added for safer first PR workflow
 credentials.json
 .bot.pid
+.tray.pid
 bot.log
 .log_exports/
 .restart_notice.json

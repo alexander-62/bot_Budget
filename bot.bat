@@ -13,6 +13,8 @@ if /I "%~1"=="start" goto :RunManager
 if /I "%~1"=="stop" goto :RunManager
 if /I "%~1"=="restart" goto :RunManager
 if /I "%~1"=="status" goto :RunManager
+if /I "%~1"=="tray" goto :RunManager
+if /I "%~1"=="stop-tray" goto :RunManager
 if /I "%~1"=="update" goto :Update
 
 goto :Usage
@@ -146,6 +148,8 @@ echo   bot.bat start [--foreground]
 echo   bot.bat stop
 echo   bot.bat restart
 echo   bot.bat status
+echo   bot.bat tray
+echo   bot.bat stop-tray
 echo   bot.bat update
 echo.
 echo Legacy wrappers are still available:
