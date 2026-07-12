@@ -93,7 +93,7 @@
 
 **Hosting:**
 - Not detected.
-- Runtime is local/process based through `bot.py`, `manage_bot.py`, `start_bot.bat`, and `restart_bot.bat`.
+- Runtime is local/process based through `bot.py`, `manage_bot.py`, and the unified `bot.bat` launcher.
 
 **CI Pipeline:**
 - None detected.

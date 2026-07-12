@@ -20,11 +20,35 @@ if /I "%~1"=="update" goto :Update
 goto :Usage
 
 :RunManager
-if exist ".venv\Scripts\python.exe" (
-    ".venv\Scripts\python.exe" manage_bot.py %*
-) else (
-    python manage_bot.py %*
+call :FindPython
+if errorlevel 1 exit /b 1
+
+set "VENV_PY=.venv\Scripts\python.exe"
+if exist "%VENV_PY%" (
+    "%VENV_PY%" -c "import sys" >nul 2>nul
+    if not errorlevel 1 (
+        "%VENV_PY%" manage_bot.py %*
+        exit /b %errorlevel%
+    )
 )
+
+if /I "%~1"=="stop" (
+    "%PYTHON_EXE%" manage_bot.py %*
+    exit /b %errorlevel%
+)
+if /I "%~1"=="status" (
+    "%PYTHON_EXE%" manage_bot.py %*
+    exit /b %errorlevel%
+)
+if /I "%~1"=="stop-tray" (
+    "%PYTHON_EXE%" manage_bot.py %*
+    exit /b %errorlevel%
+)
+
+call :RepairVenv
+if errorlevel 1 exit /b 1
+
+"%VENV_PY%" manage_bot.py %*
 exit /b %errorlevel%
 
 :Update
@@ -91,11 +115,13 @@ if errorlevel 1 (
 
 echo.
 echo === Установка зависимостей ===
-if exist ".venv\Scripts\python.exe" (
-    ".venv\Scripts\python.exe" -m pip install -r requirements.txt
-) else (
-    python -m pip install -r requirements.txt
-)
+call :FindPython
+if errorlevel 1 exit /b 1
+
+call :RepairVenv
+if errorlevel 1 exit /b 1
+
+call :InstallRequirements
 if errorlevel 1 (
     echo.
     echo Не удалось установить зависимости из requirements.txt.
@@ -141,6 +167,51 @@ echo Git не найден. Пытаюсь установить Git for Windows 
 winget install --id Git.Git -e --source winget --silent --accept-package-agreements --accept-source-agreements
 exit /b %errorlevel%
 
+:FindPython
+if defined PYTHON_EXE exit /b 0
+
+for /f "usebackq delims=" %%I in (`py -3 -c "import sys; print(sys.executable)" 2^>nul`) do (
+    set "PYTHON_EXE=%%I"
+    goto :eof
+)
+
+for /f "usebackq delims=" %%I in (`python -c "import sys; print(sys.executable)" 2^>nul`) do (
+    set "PYTHON_EXE=%%I"
+    goto :eof
+)
+
+echo.
+echo Python не найден. Установи Python 3 и запусти bat-файл еще раз.
+exit /b 1
+
+:RepairVenv
+set "VENV_PY=.venv\Scripts\python.exe"
+if exist "%VENV_PY%" (
+    "%VENV_PY%" -c "import sys" >nul 2>nul
+    if not errorlevel 1 exit /b 0
+)
+
+if exist ".venv" (
+    echo.
+    echo Локальное виртуальное окружение .venv повреждено или ссылается на отсутствующий Python.
+    echo Пересоздаю .venv...
+    rmdir /s /q ".venv"
+)
+
+"%PYTHON_EXE%" -m venv ".venv"
+if errorlevel 1 (
+    echo.
+    echo Не удалось создать .venv через "%PYTHON_EXE%".
+    exit /b 1
+)
+
+call :InstallRequirements
+exit /b %errorlevel%
+
+:InstallRequirements
+".venv\Scripts\python.exe" -m pip install -r requirements.txt
+exit /b %errorlevel%
+
 :Usage
 echo.
 echo Usage:
@@ -151,9 +222,4 @@ echo   bot.bat status
 echo   bot.bat tray
 echo   bot.bat stop-tray
 echo   bot.bat update
-echo.
-echo Legacy wrappers are still available:
-echo   start_bot.bat
-echo   restart_bot.bat
-echo   update_bot.bat
 exit /b 1

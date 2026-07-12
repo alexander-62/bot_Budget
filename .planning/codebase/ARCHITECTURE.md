@@ -11,7 +11,7 @@
 ├──────────────────┬──────────────────┬───────────────────────┤
 │ Telegram polling │ Web App server   │ Process manager       │
 │ `app.py`         │ `app.py`         │ `manage_bot.py`       │
-│ `bot.py`         │ `webapp/`        │ `start_bot.bat`       │
+│ `bot.py`         │ `webapp/`        │ `bot.bat`             │
 └────────┬─────────┴────────┬─────────┴──────────┬────────────┘
          │                  │                     │
          ▼                  ▼                     ▼
@@ -78,10 +78,10 @@
 
 **Entrypoint Layer:**
 - Purpose: Start the bot runtime and optional process management.
-- Location: `app.py`, `bot.py`, `manage_bot.py`, `start_bot.bat`, `restart_bot.bat`
+- Location: `app.py`, `bot.py`, `manage_bot.py`, `bot.bat`
 - Contains: `asyncio.run`, logging setup, aiohttp setup, aiogram dispatcher setup, subprocess/PID management.
 - Depends on: `config.py`, `handlers/`, `services/access.py`, Python stdlib process APIs.
-- Used by: Console commands from `README.md` and batch files `start_bot.bat`, `restart_bot.bat`.
+- Used by: Console commands from `README.md` and the unified `bot.bat` launcher.
 
 **Router Layer:**
 - Purpose: Translate Telegram messages and callbacks into domain operations and responses.
@@ -211,7 +211,7 @@
 
 **Process manager CLI:**
 - Location: `manage_bot.py`
-- Triggers: `python manage_bot.py start|stop|restart|status`, `start_bot.bat`, `restart_bot.bat`.
+- Triggers: `python manage_bot.py start|stop|restart|status|tray|stop-tray`, `bot.bat`.
 - Responsibilities: Background process lifecycle, `.bot.pid`, `bot.log`.
 
 **Telegram handlers:**

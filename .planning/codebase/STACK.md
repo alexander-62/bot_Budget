@@ -9,7 +9,7 @@
 
 **Secondary:**
 - HTML/CSS/JavaScript - Telegram Web App page in `webapp/index.html`.
-- Windows Batch - Local launcher wrappers in `start_bot.bat` and `restart_bot.bat`.
+- Windows Batch - Unified local launcher in `bot.bat`.
 - Markdown - Project docs in `README.md`, `GOOGLE_SETUP.md`, `BOT_TZ.md`, and `BOT_TZ (2).md`.
 
 ## Runtime
@@ -39,8 +39,8 @@
 - No build system detected.
 - `.editorconfig` sets UTF-8, LF endings, and final newline.
 - `.vscode/settings.json` sets UTF-8 behavior and Windows terminal environment variables `PYTHONUTF8` and `PYTHONIOENCODING`.
-- `manage_bot.py` provides local start, stop, restart, and status commands using `subprocess`, `.bot.pid`, and `bot.log`.
-- `start_bot.bat` and `restart_bot.bat` prefer `.venv\Scripts\python.exe` when present and fall back to `python`.
+- `manage_bot.py` provides local start, stop, restart, status, and tray commands using `subprocess`, `.bot.pid`, `.tray.pid`, and `bot.log`.
+- `bot.bat` is the single Windows launcher and repairs a broken project-local `.venv` before start/update flows.
 
 ## Key Dependencies
 
@@ -83,7 +83,7 @@
 
 **Production:**
 - Deployment target is not formalized.
-- Current runtime model is a long-running Python process started by `python bot.py`, `python manage_bot.py start`, `start_bot.bat`, or `restart_bot.bat`.
+- Current runtime model is a long-running Python process started by `python bot.py`, `python manage_bot.py start`, or `bot.bat`.
 - Telegram updates use long polling via `Dispatcher.start_polling()` in `app.py`; no webhook deployment is configured.
 - The Web App server binds to `WEBAPP_HOST` and `WEBAPP_PORT` from `config.py` and serves local assets from `webapp/`.
 

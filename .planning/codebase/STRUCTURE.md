@@ -22,15 +22,14 @@ bot_Budget/
 ├── webapp/                   # Static Telegram Web App assets
 ├── .planning/codebase/       # Generated codebase map documents
 ├── .vscode/                  # Local editor settings
-├── start_bot.bat             # Windows foreground start wrapper
-└── restart_bot.bat           # Windows restart wrapper
+└── bot.bat                   # Unified Windows launcher
 ```
 
 ## Directory Purposes
 
 **Repository root:**
 - Purpose: Runtime entry points, configuration, documentation, local scripts, and ignored runtime artifacts.
-- Contains: `app.py`, `bot.py`, `manage_bot.py`, `config.py`, `constants.py`, `requirements.txt`, `README.md`, `GOOGLE_SETUP.md`, `start_bot.bat`, `restart_bot.bat`.
+- Contains: `app.py`, `bot.py`, `manage_bot.py`, `config.py`, `constants.py`, `requirements.txt`, `README.md`, `GOOGLE_SETUP.md`, `bot.bat`.
 - Key files: `app.py`, `bot.py`, `manage_bot.py`, `config.py`, `constants.py`.
 
 **`handlers/`:**
@@ -68,9 +67,8 @@ bot_Budget/
 **Entry Points:**
 - `bot.py`: Minimal runtime entry point for `python bot.py`; imports and runs `app.main`.
 - `app.py`: Main async application setup, dispatcher creation, Web App server, bot polling.
-- `manage_bot.py`: CLI process lifecycle manager for `start`, `stop`, `restart`, and `status`.
-- `start_bot.bat`: Windows wrapper that runs `manage_bot.py start --foreground`, preferring `.venv\Scripts\python.exe`.
-- `restart_bot.bat`: Windows wrapper that runs `manage_bot.py restart`, preferring `.venv\Scripts\python.exe`.
+- `manage_bot.py`: CLI process lifecycle manager for `start`, `stop`, `restart`, `status`, and tray commands.
+- `bot.bat`: Unified Windows launcher for start, stop, restart, status, update, tray, and stop-tray.
 - `test_google.py`: Manual Google Sheets connectivity/write probe.
 
 **Configuration:**
