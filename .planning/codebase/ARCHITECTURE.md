@@ -39,7 +39,7 @@
 ┌─────────────────────────────────────────────────────────────┐
 │                Google Sheets Persistence                     │
 │ `services/google_sheets.py`, `config.py`, `constants.py`     │
-│ secret-bearing files: `secrets.py`, `credentials.json`       │
+│ secret-bearing files: `.env`, `credentials.json`             │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -72,7 +72,7 @@
 - Keep durable data access behind service functions in `services/`; all spreadsheet clients flow through `services/google_sheets.py`.
 - Keep UI markup construction in `keyboards/`; handlers should call builders instead of assembling keyboard structures inline.
 - Keep multi-step conversational state in `state/` dataclasses keyed by Telegram user id; session ids are embedded in callback data.
-- Keep runtime settings in `config.py` as names imported from `secrets.py`; never read or commit secret values from `secrets.py` or `credentials.json`.
+- Keep runtime settings in `config.py` as names loaded from `.env` or environment variables; never read or commit secret values from `.env` or `credentials.json`.
 
 ## Layers
 
@@ -227,7 +227,7 @@
 **Google connectivity probe:**
 - Location: `test_google.py`
 - Triggers: direct `python test_google.py`.
-- Responsibilities: Manual gspread connection and sample append using secret-backed config names.
+- Responsibilities: Manual gspread connection and sample append using `.env`-backed config names.
 
 ## Architectural Constraints
 
@@ -235,7 +235,7 @@
 - **Global state:** `state/expense_session.py`, `state/shopping_session.py`, and `services/access.py` keep process-local mutable dictionaries/sets that reset on process restart.
 - **Router order:** `app.create_dispatcher` includes `shopping_router`, then `expenses_router`, then `menu_router`; broad text handlers in shopping/expenses rely on active session predicates before `handlers/menu.py` fallback catches unmatched messages.
 - **Persistence:** Google Sheets is the durable store; no local database, migration layer, repository abstraction, or transaction boundary is present.
-- **Configuration:** `config.py` imports names from `secrets.py`; `secrets.py` and `credentials.json` are secret-bearing files and are excluded from content documentation.
+- **Configuration:** `config.py` loads names from `.env` or environment variables; `.env` and `credentials.json` are secret-bearing files and are excluded from content documentation.
 - **Circular imports:** No circular import chain is apparent in the active module path; services depend downward on `services/google_sheets.py` and constants, while handlers depend on services/keyboards/state.
 - **Encoding:** Several source files contain mojibake-looking Russian strings while `.editorconfig` declares UTF-8; preserve current file encoding behavior when editing user-facing text.
 

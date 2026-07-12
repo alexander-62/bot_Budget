@@ -7,7 +7,7 @@
 **Telegram Bot API:**
 - Telegram Bot API - Handles bot commands, messages, callback queries, keyboards, and startup notifications.
   - SDK/Client: `aiogram` from `requirements.txt`.
-  - Auth: `BOT_TOKEN` exposed by `config.py` from ignored `secrets.py`.
+  - Auth: `BOT_TOKEN` exposed by `config.py` from ignored `.env` or environment variables.
   - Entry point: `app.py` creates `Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))`.
   - Update delivery: `app.py` uses `Dispatcher.start_polling(bot)`; no Telegram webhook endpoint is registered.
   - Routers: `handlers/menu.py`, `handlers/expenses.py`, and `handlers/shopping.py` are included by `create_dispatcher()` in `app.py`.
@@ -17,14 +17,14 @@
   - SDK/Client: `https://telegram.org/js/telegram-web-app.js` loaded by `webapp/index.html`.
   - Auth: Telegram Web App context is accessed client-side through `window.Telegram.WebApp`; no server-side init data verification detected.
   - Bot button: `keyboards/main.py` creates `KeyboardButton(..., web_app=WebAppInfo(url=WEBAPP_URL))`.
-  - URL config: `WEBAPP_URL` exposed by `config.py` from ignored `secrets.py`, defaulting to `https://example.com/webapp` when missing.
+  - URL config: `WEBAPP_URL` exposed by `config.py` from ignored `.env` or environment variables, defaulting to the configured local web app URL when missing.
 
 **Google Sheets API:**
 - Google Sheets - Primary data store for allowed users, budget categories, limits, expenses, and shopping list items.
   - SDK/Client: `gspread` from `requirements.txt`.
-  - Auth: `GOOGLE_CREDENTIALS_FILE` exposed by `config.py` from ignored `secrets.py`.
-  - Spreadsheet selection: `SPREADSHEET_ID` exposed by `config.py` from ignored `secrets.py`.
-  - Client factory: `services/google_sheets.py` calls `gspread.service_account(filename=GOOGLE_CREDENTIALS_FILE)` and `gc.open_by_key(SPREADSHEET_ID)`.
+  - Auth: `GOOGLE_CREDENTIALS_FILE` exposed by `config.py` from ignored `.env` or environment variables.
+  - Spreadsheet selection: `SPREADSHEET_ID` exposed by `config.py` from ignored `.env` or environment variables.
+  - Client factory: `services/google_sheets.py` calls `gspread.service_account(filename=str(get_credentials_path()))` and `gc.open_by_key(SPREADSHEET_ID)`.
   - Setup docs: `GOOGLE_SETUP.md` documents enabling Google Sheets API and Google Drive API, creating a service account JSON key, and sharing the spreadsheet with the service account.
 
 **Google Drive API:**
@@ -57,7 +57,7 @@
 - Local filesystem only.
 - Static assets: `webapp/static/logo.png` served by `app.py`.
 - Local runtime files: `.bot.pid` and `bot.log` managed by `manage_bot.py` and ignored by `.gitignore`.
-- Secret/config files: `secrets.py` and `credentials.json` are present, ignored by `.gitignore`, and were not read.
+- Secret/config files: `.env` and `credentials.json` are ignored by `.gitignore` and must not be read for documentation.
 
 **Caching:**
 - In-memory access caches in `services/access.py`.
@@ -105,15 +105,15 @@
 - Not applicable. The code does not read environment variables for application configuration.
 
 **Required config names:**
-- `BOT_TOKEN` in ignored `secrets.py`.
-- `GOOGLE_CREDENTIALS_FILE` in ignored `secrets.py`.
-- `SPREADSHEET_ID` in ignored `secrets.py`.
-- Optional `WEBAPP_URL` in ignored `secrets.py`.
-- Optional `WEBAPP_HOST` in ignored `secrets.py`.
-- Optional `WEBAPP_PORT` in ignored `secrets.py`.
+- `BOT_TOKEN` in ignored `.env` or environment variables.
+- `GOOGLE_CREDENTIALS_FILE` in ignored `.env` or environment variables.
+- `SPREADSHEET_ID` in ignored `.env` or environment variables.
+- Optional `WEBAPP_URL` in ignored `.env` or environment variables.
+- Optional `WEBAPP_HOST` in ignored `.env` or environment variables.
+- Optional `WEBAPP_PORT` in ignored `.env` or environment variables.
 
 **Secrets location:**
-- `secrets.py` for application config and token names.
+- `.env` for application config and token names.
 - `credentials.json` or the file path named by `GOOGLE_CREDENTIALS_FILE` for Google service account JSON.
 - `.gitignore` excludes `secrets.py`, `.env`, `*.env`, and `credentials.json`.
 

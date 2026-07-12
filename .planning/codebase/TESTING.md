@@ -48,7 +48,7 @@ bot_Budget/
 ```python
 # Current pattern in test_google.py
 def main() -> None:
-    gc = gspread.service_account(filename=GOOGLE_CREDENTIALS_FILE)
+    gc = gspread.service_account(filename=str(get_credentials_path()))
     sh = gc.open_by_key(SPREADSHEET_ID)
     worksheet = sh.sheet1
     all_records = worksheet.get_all_records()
@@ -60,7 +60,7 @@ if __name__ == "__main__":
 ```
 
 **Patterns:**
-- Manual script setup imports real credentials names from `secrets.py` in `test_google.py`.
+- Manual script setup imports real credentials names from `config.py` in `test_google.py`.
 - The script uses the real `gspread.service_account(...)` client and real spreadsheet ID.
 - The script verifies behavior by printing records and appending a sample row, not by assertions.
 - No automated setup/teardown pattern is present.
@@ -86,7 +86,7 @@ worksheet = find_worksheet_case_insensitive(spreadsheet, EXPENSES_SHEET_NAME)
 
 **What NOT to Mock:**
 - Do not mock pure parsing and formatting helpers such as `parse_amount()` in `services/expenses.py`, `normalize_text()` in `services/google_sheets.py`, `_parse_decimal()` in `services/budget.py`, or `_format_shopping_list()` in `handlers/shopping.py`.
-- Do not use live `credentials.json`, `secrets.py`, or a real Google Sheet for normal automated unit tests.
+- Do not use live `credentials.json`, `.env`, or a real Google Sheet for normal automated unit tests.
 - Do not mock `Decimal` behavior; test money parsing/rounding with concrete input/output values.
 
 ## Fixtures and Factories
@@ -127,7 +127,7 @@ rows = [
 
 **Integration Tests:**
 - Manual integration testing exists through `test_google.py`.
-- `test_google.py` uses real `GOOGLE_CREDENTIALS_FILE` and `SPREADSHEET_ID` names from `secrets.py`, reads the first worksheet, and appends a row.
+- `test_google.py` uses real `GOOGLE_CREDENTIALS_FILE` and `SPREADSHEET_ID` names from `config.py`, reads the first worksheet, and appends a row.
 - No non-destructive integration test harness exists for Google Sheets services.
 
 **E2E Tests:**

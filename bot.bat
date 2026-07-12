@@ -1,4 +1,4 @@
-﻿@echo off
+@echo off
 setlocal EnableExtensions
 
 chcp 65001 >nul
@@ -83,6 +83,20 @@ if errorlevel 1 (
     echo.
     echo Ошибка при обновлении репозитория.
     echo Проверь сеть, Git и наличие локальных изменений.
+    pause
+    exit /b 1
+)
+
+echo.
+echo === Установка зависимостей ===
+if exist ".venv\Scripts\python.exe" (
+    ".venv\Scripts\python.exe" -m pip install -r requirements.txt
+) else (
+    python -m pip install -r requirements.txt
+)
+if errorlevel 1 (
+    echo.
+    echo Не удалось установить зависимости из requirements.txt.
     pause
     exit /b 1
 )

@@ -9,7 +9,7 @@ bot_Budget/
 ├── app.py                    # Main async application bootstrap
 ├── bot.py                    # Minimal bot entry point
 ├── manage_bot.py             # Start/stop/restart/status process manager
-├── config.py                 # Secret-backed runtime config names
+├── config.py                 # .env-backed runtime config names
 ├── constants.py              # Sheet names, callbacks, TTLs, UI constants
 ├── requirements.txt          # Python dependency list
 ├── README.md                 # Runtime commands and logging notes
@@ -74,7 +74,7 @@ bot_Budget/
 - `test_google.py`: Manual Google Sheets connectivity/write probe.
 
 **Configuration:**
-- `config.py`: Imports `BOT_TOKEN`, `GOOGLE_CREDENTIALS_FILE`, and `SPREADSHEET_ID` from `secrets.py`; provides defaults for `WEBAPP_URL`, `WEBAPP_HOST`, and `WEBAPP_PORT`.
+- `config.py`: Loads `BOT_TOKEN`, `GOOGLE_CREDENTIALS_FILE`, and `SPREADSHEET_ID` from `.env` or environment variables; provides defaults for `WEBAPP_URL`, `WEBAPP_HOST`, and `WEBAPP_PORT`.
 - `constants.py`: Defines worksheet names, menu/callback constants, session TTLs, access cache TTL, and shopping item max length.
 - `.gitignore`: Ignores `secrets.py`, `.env`, `credentials.json`, `.bot.pid`, `bot.log`, virtualenv folders, caches, and editor files.
 - `.editorconfig`: Requires UTF-8, LF endings, and final newlines.
@@ -105,7 +105,7 @@ bot_Budget/
 - `app.py.bak_test`, `keyboards/main.py.bak_test`, `handlers/expenses (2).py`, `services/expenses (2).py`: Backup/duplicate artifacts; do not use as primary implementation targets.
 
 **Secrets and Runtime Artifacts:**
-- `secrets.py`: Secret-bearing Python config module; reference variable names only.
+- `.env`: Secret-bearing local config file; reference variable names only.
 - `credentials.json`: Secret-bearing Google service account file; do not read or quote.
 - `.bot.pid`: Runtime PID file used by `manage_bot.py`.
 - `bot.log`: Runtime log file used by `manage_bot.py`.
@@ -170,7 +170,7 @@ bot_Budget/
 **Utilities:**
 - Spreadsheet/text normalization: `services/google_sheets.py`.
 - Shared domain formatting: add a focused helper module under `services/` if formatting is tied to domain data; avoid duplicating helpers in multiple handlers.
-- Runtime configuration constants: `constants.py` for non-secret constants and `config.py` for secret-backed names/defaulted runtime settings.
+- Runtime configuration constants: `constants.py` for non-secret constants and `config.py` for `.env`-backed names/defaulted runtime settings.
 
 **Tests:**
 - No automated test layout is present. New automated tests should use a clearly named test file or test directory instead of extending `test_google.py`, which is a manual integration probe.

@@ -75,8 +75,8 @@
 ## Security Considerations
 
 **Local secret files are required for runtime:**
-- Risk: The application depends on local `secrets.py` and `credentials.json`; these names are ignored but present in the workspace. Accidental copying, backup, or manual sharing can leak the Telegram token, spreadsheet id, or Google service-account material.
-- Files: `secrets.py`, `credentials.json`, `.gitignore`, `config.py`, `services/google_sheets.py`
+- Risk: The application depends on local `.env` and `credentials.json`; these names are ignored but present in the workspace. Accidental copying, backup, or manual sharing can leak the Telegram token, spreadsheet id, or Google service-account material.
+- Files: `.env`, `credentials.json`, `.gitignore`, `config.py`, `services/google_sheets.py`
 - Current mitigation: `.gitignore` excludes `secrets.py`, `.env`, `*.env`, `credentials.json`, `.bot.pid`, and `bot.log`.
 - Recommendations: Keep secrets outside the repo directory or load them from environment variables/secret manager. Add a startup validation message that lists missing variable names only.
 
@@ -197,7 +197,7 @@
 - Blocks: Safe refactoring of handlers, parsers, access checks, and Google Sheets adapters.
 
 **Configuration validation:**
-- Problem: `config.py` imports required settings from `secrets.py` directly and does not validate missing or malformed configuration with actionable errors.
+- Problem: `config.py` must keep startup validation errors actionable without printing secret values.
 - Blocks: Reliable first-run setup, deployment diagnostics, and CI smoke checks.
 
 **Admin role separation:**

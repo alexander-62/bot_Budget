@@ -3,12 +3,13 @@ import json
 import logging
 from pathlib import Path
 
+# Import config before aiogram so local secrets.py cannot shadow stdlib secrets.
+from config import BOT_TOKEN, WEBAPP_HOST, WEBAPP_PORT
 from aiohttp import web
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 
-from config import BOT_TOKEN, WEBAPP_HOST, WEBAPP_PORT
 from handlers.expenses import router as expenses_router
 from handlers.menu import router as menu_router
 from handlers.shopping import router as shopping_router

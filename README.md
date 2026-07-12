@@ -4,6 +4,18 @@ Telegram-бот для учета бюджета с Google Sheets.
 
 ## Запуск
 
+### Настройка локального конфига
+
+Создайте `.env` в корне проекта по образцу `.env.example`:
+
+```env
+BOT_TOKEN=ваш_токен_бота
+SPREADSHEET_ID=ваш_id_таблицы
+GOOGLE_CREDENTIALS_FILE=credentials.json
+```
+
+`credentials.json` остается отдельным файлом ключа сервисного аккаунта Google. `.env` и `credentials.json` не должны попадать в Git.
+
 ### Обычный запуск (в текущей консоли)
 
 ```bash
@@ -39,7 +51,7 @@ bot.bat stop
 
 При запуске бот заранее проверяет:
 
-- обязательные имена настроек в `secrets.py`
+- обязательные имена настроек из `.env` или переменных окружения
 - существование файла из `GOOGLE_CREDENTIALS_FILE`
 - обязательные листы и заголовки в Google Sheets
 

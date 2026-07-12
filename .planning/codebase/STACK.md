@@ -58,11 +58,11 @@
 ## Configuration
 
 **Environment:**
-- Configuration is Python-module based, not environment-variable based.
-- `config.py` imports `secrets.py` as `app_secrets` and exposes `BOT_TOKEN`, `GOOGLE_CREDENTIALS_FILE`, `SPREADSHEET_ID`, `WEBAPP_URL`, `WEBAPP_HOST`, and `WEBAPP_PORT`.
-- `secrets.py` is present but ignored by git and was not read; it is expected to provide secret/config values.
-- `credentials.json` is present but ignored by git and was not read; it is expected to contain Google service account credentials referenced by `GOOGLE_CREDENTIALS_FILE`.
-- `.env` is ignored by `.gitignore`, but no `.env` file was detected during the scan.
+- Configuration is `.env`/environment-variable based.
+- `config.py` loads `.env` and exposes `BOT_TOKEN`, `GOOGLE_CREDENTIALS_FILE`, `SPREADSHEET_ID`, `WEBAPP_URL`, `WEBAPP_HOST`, and `WEBAPP_PORT`.
+- `.env` is ignored by git and is expected to provide secret/config values.
+- `credentials.json` is ignored by git and is expected to contain Google service account credentials referenced by `GOOGLE_CREDENTIALS_FILE`.
+- `.env.example` documents the required local config names without real values.
 
 **Build:**
 - `requirements.txt`: declares Python runtime dependencies.
@@ -76,7 +76,7 @@
 **Development:**
 - Python with pip.
 - Install dependencies with `pip install -r requirements.txt`.
-- Create local `secrets.py` with `BOT_TOKEN`, `GOOGLE_CREDENTIALS_FILE`, `SPREADSHEET_ID`, and optional `WEBAPP_URL`, `WEBAPP_HOST`, `WEBAPP_PORT`.
+- Create local `.env` with `BOT_TOKEN`, `GOOGLE_CREDENTIALS_FILE`, `SPREADSHEET_ID`, and optional `WEBAPP_URL`, `WEBAPP_HOST`, `WEBAPP_PORT`.
 - Place Google service account JSON at the path configured by `GOOGLE_CREDENTIALS_FILE`.
 - Google Sheets API and Google Drive API must be enabled for the service account project, as documented in `GOOGLE_SETUP.md`.
 - Share the target spreadsheet with the Google service account email with editor access.

@@ -80,20 +80,20 @@ echo gspread >> requirements.txt
 pip install -r requirements.txt
 ```
 
-## Шаг 8: Настройка secrets.py
+## Шаг 8: Настройка .env
 
-Добавьте в файл `secrets.py` следующие переменные:
+Создайте файл `.env` в корне проекта и добавьте следующие переменные:
 
-```python
-# Токен Telegram бота
-BOT_TOKEN = "ваш_токен_бота"
+```env
+BOT_TOKEN=ваш_токен_бота
+SPREADSHEET_ID=ваш_id_таблицы
+GOOGLE_CREDENTIALS_FILE=credentials.json
 
-# ID Google таблицы (из шага 2)
-SPREADSHEET_ID = "ваш_id_таблицы"
-
-# Путь к файлу с учетными данными
-GOOGLE_CREDENTIALS_FILE = "credentials.json"
+WEBAPP_HOST=127.0.0.1
+WEBAPP_PORT=8080
 ```
+
+Файл `credentials.json` остается отдельным Google service account key. В `.env` хранится только путь к нему.
 
 ## Шаг 9: Проверка подключения
 
@@ -101,10 +101,11 @@ GOOGLE_CREDENTIALS_FILE = "credentials.json"
 
 ```python
 import gspread
-from secrets import SPREADSHEET_ID, GOOGLE_CREDENTIALS_FILE
+
+from config import SPREADSHEET_ID, get_credentials_path
 
 # Авторизация
-gc = gspread.service_account(filename=GOOGLE_CREDENTIALS_FILE)
+gc = gspread.service_account(filename=str(get_credentials_path()))
 
 # Открытие таблицы
 sh = gc.open_by_key(SPREADSHEET_ID)
@@ -159,8 +160,8 @@ python test_google.py
 Если после ожидания ошибка осталась:
 
 1. Проверьте, что таблица расшарена на `client_email` из `credentials.json` с ролью **Editor**.
-2. Убедитесь, что в `secrets.py` указан правильный `SPREADSHEET_ID` (часть URL между `/d/` и `/edit`).
-3. Убедитесь, что `GOOGLE_CREDENTIALS_FILE = "credentials.json"` и файл лежит в папке проекта.
+2. Убедитесь, что в `.env` указан правильный `SPREADSHEET_ID` (часть URL между `/d/` и `/edit`).
+3. Убедитесь, что `GOOGLE_CREDENTIALS_FILE=credentials.json` и файл лежит в папке проекта.
 4. Перепроверьте, что вы включили API именно в том проекте, чей ключ используете.
 5. Подождите еще 10-15 минут и повторите запуск.
 

@@ -6,17 +6,7 @@ from pathlib import Path
 
 
 BASE_DIR = Path(__file__).resolve().parent
-
-
-def _load_local_secrets():
-    secrets_path = BASE_DIR / "secrets.py"
-    spec = importlib.util.spec_from_file_location("_bot_budget_local_secrets", secrets_path)
-    if spec is None or spec.loader is None:
-        raise RuntimeError("Unable to load local secrets.py.")
-
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+ENV_FILE = BASE_DIR / ".env"
 
 
 def _restore_stdlib_secrets_module() -> None:
@@ -30,43 +20,68 @@ def _restore_stdlib_secrets_module() -> None:
     spec.loader.exec_module(module)
 
 
-app_secrets = _load_local_secrets()
 _restore_stdlib_secrets_module()
 
 
-def _require_secret_name(name: str) -> str:
-    value = getattr(app_secrets, name, None)
-    if value is None:
-        raise RuntimeError(f"Missing required config name in secrets.py: {name}")
-    if isinstance(value, str) and not value.strip():
-        raise RuntimeError(f"Config name is empty in secrets.py: {name}")
-    return str(value)
-
-
-def _get_optional_setting(name: str, default):
-    value = getattr(app_secrets, name, default)
-    if isinstance(value, str):
-        return value.strip()
+def _unquote_env_value(value: str) -> str:
+    value = value.strip()
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in {'"', "'"}:
+        value = value[1:-1]
     return value
 
 
-def _get_runtime_override(name: str, default: str) -> str:
-    value = os.getenv(f"BOT_BUDGET_{name}")
-    if value is not None and value.strip():
-        return value.strip()
+def _load_env_file(path: Path = ENV_FILE) -> dict[str, str]:
+    if not path.exists():
+        return {}
+
+    values: dict[str, str] = {}
+    for line_number, raw_line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("export "):
+            line = line[len("export ") :].lstrip()
+        if "=" not in line:
+            raise RuntimeError(f"Invalid .env line {line_number}: expected NAME=value.")
+
+        name, value = line.split("=", 1)
+        name = name.strip()
+        if not name:
+            raise RuntimeError(f"Invalid .env line {line_number}: empty name.")
+        values[name] = _unquote_env_value(value)
+
+    return values
+
+
+_ENV_VALUES = _load_env_file()
+
+
+def _get_config_value(name: str, default: str = "") -> str:
+    prefixed_value = os.getenv(f"BOT_BUDGET_{name}")
+    if prefixed_value is not None and prefixed_value.strip():
+        return prefixed_value.strip()
+
+    env_value = os.getenv(name)
+    if env_value is not None and env_value.strip():
+        return env_value.strip()
+
+    file_value = _ENV_VALUES.get(name)
+    if file_value is not None and file_value.strip():
+        return file_value.strip()
+
     return default
 
 
-BOT_TOKEN = _require_secret_name("BOT_TOKEN")
-GOOGLE_CREDENTIALS_FILE = _require_secret_name("GOOGLE_CREDENTIALS_FILE")
-SPREADSHEET_ID = _require_secret_name("SPREADSHEET_ID")
-WEBAPP_HOST = _get_runtime_override("WEBAPP_HOST", _get_optional_setting("WEBAPP_HOST", "127.0.0.1"))
-WEBAPP_PORT = int(_get_runtime_override("WEBAPP_PORT", str(_get_optional_setting("WEBAPP_PORT", 8080))))
-WEBAPP_URL = _get_runtime_override(
-    "WEBAPP_URL",
-    _get_optional_setting("WEBAPP_URL", f"http://{WEBAPP_HOST}:{WEBAPP_PORT}/webapp"),
-)
+BOT_TOKEN = _get_config_value("BOT_TOKEN")
+GOOGLE_CREDENTIALS_FILE = _get_config_value("GOOGLE_CREDENTIALS_FILE")
+SPREADSHEET_ID = _get_config_value("SPREADSHEET_ID")
+WEBAPP_HOST = _get_config_value("WEBAPP_HOST", "127.0.0.1")
+WEBAPP_PORT = int(_get_config_value("WEBAPP_PORT", "8080"))
+WEBAPP_URL = _get_config_value("WEBAPP_URL", f"http://{WEBAPP_HOST}:{WEBAPP_PORT}/webapp")
 
 
 def get_credentials_path() -> Path:
-    return Path(GOOGLE_CREDENTIALS_FILE).expanduser()
+    path = Path(GOOGLE_CREDENTIALS_FILE).expanduser()
+    if path.is_absolute():
+        return path
+    return BASE_DIR / path

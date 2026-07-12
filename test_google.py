@@ -1,10 +1,11 @@
+from config import SPREADSHEET_ID, get_credentials_path
+
 import gspread
-from secrets import SPREADSHEET_ID, GOOGLE_CREDENTIALS_FILE
 
 
 def main() -> None:
     # Авторизация через сервисный аккаунт
-    gc = gspread.service_account(filename=GOOGLE_CREDENTIALS_FILE)
+    gc = gspread.service_account(filename=str(get_credentials_path()))
 
     # Открытие таблицы по ID
     sh = gc.open_by_key(SPREADSHEET_ID)

@@ -1,6 +1,6 @@
-import gspread
+from config import SPREADSHEET_ID, get_credentials_path
 
-from config import GOOGLE_CREDENTIALS_FILE, SPREADSHEET_ID
+import gspread
 
 _client: gspread.Client | None = None
 _spreadsheet: gspread.Spreadsheet | None = None
@@ -27,7 +27,7 @@ def get_gspread_client() -> gspread.Client:
     global _client
 
     if _client is None:
-        _client = gspread.service_account(filename=GOOGLE_CREDENTIALS_FILE)
+        _client = gspread.service_account(filename=str(get_credentials_path()))
     return _client
 
 
