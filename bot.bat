@@ -222,4 +222,5 @@ echo   bot.bat status
 echo   bot.bat tray
 echo   bot.bat stop-tray
 echo   bot.bat update
+pause
 exit /b 1
