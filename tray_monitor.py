@@ -13,6 +13,7 @@ from pathlib import Path
 from urllib.parse import urlparse, urlunparse
 
 from config import WEBAPP_HOST, WEBAPP_PORT, WEBAPP_URL
+from services.process_control import ProcessLock, is_process_running as _is_running
 from version import __version__
 
 try:
@@ -33,6 +34,7 @@ PID_FILE = BASE_DIR / ".bot.pid"
 PORT_FILE = BASE_DIR / ".bot.port"
 TRAY_PID_FILE = BASE_DIR / ".tray.pid"
 LOG_FILE = BASE_DIR / "bot.log"
+TRAY_LOCK_FILE = BASE_DIR / ".tray.lock"
 UPDATE_INTERVAL_SECONDS = 5
 
 
@@ -52,14 +54,6 @@ def _write_tray_pid() -> None:
 def _clear_tray_pid() -> None:
     if TRAY_PID_FILE.exists() and _read_int(TRAY_PID_FILE) == os.getpid():
         TRAY_PID_FILE.unlink()
-
-
-def _is_running(pid: int) -> bool:
-    try:
-        os.kill(pid, 0)
-        return True
-    except OSError:
-        return False
 
 
 def _read_bot_pid() -> int | None:
@@ -171,6 +165,15 @@ class BotTray:
         self.last_tooltip = "Бот не запущен"
 
     def run(self) -> int:
+        runtime_lock = ProcessLock(TRAY_LOCK_FILE)
+        if not runtime_lock.acquire():
+            return 0
+        try:
+            return self._run_single_instance()
+        finally:
+            runtime_lock.release()
+
+    def _run_single_instance(self) -> int:
         if pystray is None or Image is None:
             print(f"Tray icon unavailable: {TRAY_IMPORT_ERROR}", file=sys.stderr)
             return 1

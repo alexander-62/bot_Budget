@@ -54,6 +54,10 @@ credentials.json
 .bot.pid
 .bot.port
 .tray.pid
+.bot.lock
+.bot-start.lock
+.tray.lock
+.tray-start.lock
 bot.log
 *.log
 publication/
