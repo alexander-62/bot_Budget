@@ -451,6 +451,12 @@ async def expense_category_handler(callback: types.CallbackQuery) -> None:
         await callback.answer("Ошибка чтения данных", show_alert=True)
         return
 
+    # A Sheets read yields control. Never continue a replaced/cancelled flow
+    # using the old session object, even when called outside the dispatcher.
+    if get_active_session(user_id) is not session or session.state != "choose_category":
+        await callback.answer("Шаг устарел, начните заново", show_alert=True)
+        return
+
     if not subcategories:
         await callback.answer()
         if callback.message:
@@ -506,6 +512,10 @@ async def expense_subcategory_handler(callback: types.CallbackQuery) -> None:
     except Exception:
         logging.exception("Ошибка чтения подкатегорий")
         await callback.answer("Ошибка чтения данных", show_alert=True)
+        return
+
+    if get_active_session(user_id) is not session or session.state != "choose_subcategory":
+        await callback.answer("Шаг устарел, начните заново", show_alert=True)
         return
 
     session.subcategory = subcategories[idx]
