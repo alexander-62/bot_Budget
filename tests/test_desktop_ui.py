@@ -73,6 +73,7 @@ class DesktopUITests(unittest.TestCase):
         self.panel._render_status(sample_status())
         self.panel.update()
         self.assertIsNotNone(self.panel.logo_image)
+        self.assertLessEqual(self.panel.winfo_rooty() + self.panel.winfo_height(), self.panel.winfo_screenheight())
         self.assertEqual(self.panel.headline.cget("text"), "Бот работает")
         self.assertIn("2 ч 01 мин", self.panel.uptime_label.cget("text"))
         self.assertEqual(self.panel.action_buttons["start"].cget("state"), "disabled")

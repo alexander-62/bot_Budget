@@ -53,8 +53,12 @@ class BudgetPanel(ctk.CTk):
             ctk.DrawEngine.preferred_drawing_method = "polygon_shapes"
         super().__init__(fg_color=BG)
         self.title("Bot Budget — панель управления")
-        self.geometry("880x790")
-        self.minsize(820, 740)
+        # CTk sizes are logical pixels; fit both small screens and Windows DPI.
+        scale = self._get_window_scaling()
+        width = min(880, int((self.winfo_screenwidth() - 60) / scale))
+        height = min(790, int((self.winfo_screenheight() - 120) / scale))
+        self.geometry(f"{width}x{height}+20+20")
+        self.minsize(min(820, width), min(740, height))
         self.protocol("WM_DELETE_WINDOW", self._hide)
         self._executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="BudgetPanel")
         self._events = Queue()
