@@ -9,6 +9,8 @@ from aiohttp import web
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
+from aiogram.fsm.storage.memory import SimpleEventIsolation
+from aiogram.fsm.strategy import FSMStrategy
 
 from handlers.expenses import router as expenses_router
 from handlers.menu import router as menu_router
@@ -35,7 +37,12 @@ def setup_logging() -> None:
 
 
 def create_dispatcher() -> Dispatcher:
-    dp = Dispatcher()
+    # Sessions are keyed by user id, so serialize that user's updates across
+    # chats, before routing filters or handlers can read/mutate session state.
+    dp = Dispatcher(
+        events_isolation=SimpleEventIsolation(),
+        fsm_strategy=FSMStrategy.GLOBAL_USER,
+    )
     dp.include_router(shopping_router)
     dp.include_router(expenses_router)
     dp.include_router(menu_router)
