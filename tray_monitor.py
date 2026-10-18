@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import json
 import socket
 import subprocess
 import sys
@@ -77,7 +78,8 @@ def _is_health_ok(port: int) -> bool:
     url = f"http://{WEBAPP_HOST}:{port}/webapp/health"
     try:
         with urllib.request.urlopen(url, timeout=1.0) as response:
-            return response.status == 200
+            payload = json.loads(response.read(16384))
+            return response.status == 200 and payload.get("ok") is True and payload.get("polling_ready", True)
     except Exception:
         return False
 
@@ -130,12 +132,13 @@ def create_tray_image(status: str):
     draw = ImageDraw.Draw(image)
     draw.rounded_rectangle((4, 4, 60, 60), radius=12, fill=bg)
 
-    label = "B"
-    font = _load_font(38)
-    bbox = draw.textbbox((0, 0), label, font=font)
-    x = (64 - (bbox[2] - bbox[0])) // 2
-    y = (64 - (bbox[3] - bbox[1])) // 2 - 2
-    draw.text((x, y), label, font=font, fill=(255, 255, 255))
+    try:
+        with Image.open(BASE_DIR / "logo.png") as source:
+            logo = source.convert("RGBA").resize((48, 48), Image.Resampling.LANCZOS)
+        image.alpha_composite(logo, (8, 8))
+    except OSError:
+        font = _load_font(38)
+        draw.text((19, 8), "B", font=font, fill=(255, 255, 255))
 
     if status == "running":
         draw.ellipse((43, 43, 57, 57), fill=(160, 255, 190), outline=(255, 255, 255), width=2)
@@ -201,7 +204,8 @@ class BotTray:
 
     def _build_menu(self):
         return pystray.Menu(
-            pystray.MenuItem("Статус", self._show_status, default=True),
+            pystray.MenuItem("Открыть панель", self._open_panel, default=True),
+            pystray.MenuItem("Статус", self._show_status),
             pystray.MenuItem("Открыть Web App", self._open_webapp),
             pystray.MenuItem("Открыть лог", self._open_log),
             pystray.Menu.SEPARATOR,
@@ -230,6 +234,9 @@ class BotTray:
         self.update_icon()
         if self.icon is not None:
             self.icon.notify(self.last_tooltip, "Bot Budget")
+
+    def _open_panel(self, _icon=None, _item=None) -> None:
+        _run_manager("ui")
 
     def _open_webapp(self, _icon=None, _item=None) -> None:
         webbrowser.open(_build_runtime_webapp_url(_read_runtime_port()))

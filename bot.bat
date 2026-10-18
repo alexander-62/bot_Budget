@@ -7,8 +7,12 @@ set "PYTHONIOENCODING=utf-8"
 
 cd /d "%~dp0"
 
-if "%~1"=="" goto :Usage
+if "%~1"=="" (
+    call "%~f0" ui --start-bot
+    exit /b
+)
 
+if /I "%~1"=="ui" goto :RunManager
 if /I "%~1"=="start" goto :RunManager
 if /I "%~1"=="stop" goto :RunManager
 if /I "%~1"=="restart" goto :RunManager
@@ -27,6 +31,11 @@ set "VENV_PY=.venv\Scripts\python.exe"
 if exist "%VENV_PY%" (
     "%VENV_PY%" -c "import sys" >nul 2>nul
     if not errorlevel 1 (
+        if /I "%~1"=="ui" (
+            "%VENV_PY%" -c "import customtkinter" >nul 2>nul
+            if errorlevel 1 call :InstallRequirements
+            if errorlevel 1 exit /b 1
+        )
         "%VENV_PY%" manage_bot.py %*
         exit /b %errorlevel%
     )
@@ -78,6 +87,7 @@ if not defined GIT_EXE (
 
 echo === Остановка бота ===
 call :RunManager stop
+call :RunManager stop-tray
 
 echo.
 echo === Обновление из GitHub ===
@@ -215,6 +225,8 @@ exit /b %errorlevel%
 :Usage
 echo.
 echo Usage:
+echo   bot.bat [opens panel and starts bot]
+echo   bot.bat ui [--minimized] [--start-bot]
 echo   bot.bat start [--foreground]
 echo   bot.bat stop
 echo   bot.bat restart
