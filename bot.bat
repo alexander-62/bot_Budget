@@ -87,6 +87,7 @@ if not defined GIT_EXE (
 
 echo === Остановка бота ===
 call :RunManager stop
+call :RunManager stop-tray
 
 echo.
 echo === Обновление из GitHub ===
