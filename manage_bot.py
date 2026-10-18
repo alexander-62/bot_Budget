@@ -9,6 +9,12 @@ from pathlib import Path
 from urllib.parse import urlparse, urlunparse
 
 from config import WEBAPP_HOST, WEBAPP_PORT, WEBAPP_URL
+from services.process_control import (
+    AlreadyRunningError,
+    ProcessLock,
+    is_lock_held,
+    is_process_running as _is_running,
+)
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -16,6 +22,10 @@ PID_FILE = BASE_DIR / ".bot.pid"
 PORT_FILE = BASE_DIR / ".bot.port"
 LOG_FILE = BASE_DIR / "bot.log"
 TRAY_PID_FILE = BASE_DIR / ".tray.pid"
+BOT_LOCK_FILE = BASE_DIR / ".bot.lock"
+START_LOCK_FILE = BASE_DIR / ".bot-start.lock"
+TRAY_LOCK_FILE = BASE_DIR / ".tray.lock"
+TRAY_START_LOCK_FILE = BASE_DIR / ".tray-start.lock"
 
 
 def _read_pid() -> int | None:
@@ -70,14 +80,6 @@ def _clear_port() -> None:
 def _clear_tray_pid() -> None:
     if TRAY_PID_FILE.exists():
         TRAY_PID_FILE.unlink()
-
-
-def _is_running(pid: int) -> bool:
-    try:
-        os.kill(pid, 0)
-        return True
-    except OSError:
-        return False
 
 
 def _is_webapp_port_busy() -> bool:
@@ -195,9 +197,20 @@ def _format_port_busy_message() -> str:
 
 
 def start_bot(background: bool = True) -> None:
+    try:
+        with ProcessLock(START_LOCK_FILE):
+            _start_bot(background)
+    except AlreadyRunningError:
+        print("Bot start is already in progress.")
+
+
+def _start_bot(background: bool = True) -> None:
     pid = _read_pid()
     if pid and _is_running(pid):
         print(f"Bot is already running (PID {pid}).")
+        return
+    if is_lock_held(BOT_LOCK_FILE):
+        print("Bot is already running (runtime lock is held).")
         return
 
     runtime_port = WEBAPP_PORT
@@ -289,6 +302,19 @@ def status_bot() -> None:
 
 
 def start_tray(silent: bool = False) -> None:
+    try:
+        with ProcessLock(TRAY_START_LOCK_FILE):
+            _start_tray(silent)
+    except AlreadyRunningError:
+        if not silent:
+            print("Tray start is already in progress.")
+
+
+def _start_tray(silent: bool = False) -> None:
+    if is_lock_held(TRAY_LOCK_FILE):
+        if not silent:
+            print("Tray icon is already running (runtime lock is held).")
+        return
     tray_pid = _read_tray_pid()
     if tray_pid and _is_running(tray_pid):
         if not silent:

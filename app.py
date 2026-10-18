@@ -19,6 +19,7 @@ from scheduler import run_daily_digest_scheduler
 from services.async_tools import run_blocking
 from services.access import get_allowed_chat_ids
 from services.startup_validation import StartupValidationError, validate_startup
+from services.process_control import ProcessLock
 from version import __version__
 
 RESTART_NOTICE_FILE = Path(__file__).resolve().parent / ".restart_notice.json"
@@ -143,6 +144,17 @@ async def notify_restart_complete(bot: Bot) -> None:
 
 async def main() -> None:
     setup_logging()
+    runtime_lock = ProcessLock(Path(__file__).resolve().parent / ".bot.lock")
+    if not runtime_lock.acquire():
+        logging.warning("Бот уже запущен. Второй экземпляр не будет запущен.")
+        return
+    try:
+        await _run_bot()
+    finally:
+        runtime_lock.release()
+
+
+async def _run_bot() -> None:
     try:
         await run_blocking(validate_startup)
     except StartupValidationError as exc:
