@@ -26,6 +26,10 @@ BOT_LOCK_FILE = BASE_DIR / ".bot.lock"
 START_LOCK_FILE = BASE_DIR / ".bot-start.lock"
 TRAY_LOCK_FILE = BASE_DIR / ".tray.lock"
 TRAY_START_LOCK_FILE = BASE_DIR / ".tray-start.lock"
+DESKTOP_LOCK_FILE = BASE_DIR / ".desktop.lock"
+DESKTOP_START_LOCK_FILE = BASE_DIR / ".desktop-start.lock"
+DESKTOP_PID_FILE = BASE_DIR / ".desktop.pid"
+DESKTOP_SHOW_FILE = BASE_DIR / ".desktop.show"
 
 
 def _read_pid() -> int | None:
@@ -369,6 +373,37 @@ def restart_bot() -> None:
     start_bot(background=True)
 
 
+def start_desktop(minimized: bool = False, start_bot_on_open: bool = False) -> None:
+    try:
+        with ProcessLock(DESKTOP_START_LOCK_FILE):
+            start_tray(silent=True)
+            try:
+                desktop_pid = int(DESKTOP_PID_FILE.read_text(encoding="utf-8").strip())
+            except (OSError, ValueError):
+                desktop_pid = None
+            if is_lock_held(DESKTOP_LOCK_FILE) or (desktop_pid and _is_running(desktop_pid)):
+                if start_bot_on_open or not minimized:
+                    request = "start" if minimized else "show-and-start" if start_bot_on_open else "show"
+                    DESKTOP_SHOW_FILE.write_text(request, encoding="utf-8")
+                print("Desktop panel is already running.")
+                return
+            command = [_get_windowless_python(), str(BASE_DIR / "desktop_app.py")]
+            if minimized:
+                command.append("--minimized")
+            if start_bot_on_open:
+                command.append("--start-bot")
+            kwargs = {"creationflags": subprocess.CREATE_NO_WINDOW} if os.name == "nt" else {}
+            with LOG_FILE.open("a", encoding="utf-8") as log_file:
+                process = subprocess.Popen(command, cwd=BASE_DIR, stdout=log_file, stderr=log_file, **kwargs)
+            DESKTOP_PID_FILE.write_text(str(process.pid), encoding="utf-8")
+            print(f"Desktop panel started (PID {process.pid}).")
+    except AlreadyRunningError:
+        if start_bot_on_open or not minimized:
+            request = "start" if minimized else "show-and-start" if start_bot_on_open else "show"
+            DESKTOP_SHOW_FILE.write_text(request, encoding="utf-8")
+        print("Desktop panel start is already in progress.")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Telegram bot process manager")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -385,9 +420,15 @@ def main() -> None:
     sub.add_parser("status", help="Show bot status")
     sub.add_parser("tray", help="Start tray status icon")
     sub.add_parser("stop-tray", help="Stop tray status icon")
+    desktop_parser = sub.add_parser("ui", help="Open Windows control panel")
+    desktop_parser.add_argument("--minimized", action="store_true")
+    desktop_parser.add_argument("--start-bot", action="store_true")
 
     args = parser.parse_args()
 
+    if args.command == "ui":
+        start_desktop(minimized=args.minimized, start_bot_on_open=args.start_bot)
+        return
     if args.command == "start":
         start_bot(background=not args.foreground)
         return

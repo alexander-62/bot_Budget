@@ -1,7 +1,9 @@
 import asyncio
 import json
 import logging
+import os
 from pathlib import Path
+import time
 
 # Import config before aiogram so local secrets.py cannot shadow stdlib secrets.
 from config import BOT_TOKEN, WEBAPP_HOST, WEBAPP_PORT
@@ -23,6 +25,7 @@ from services.process_control import ProcessLock
 from version import __version__
 
 RESTART_NOTICE_FILE = Path(__file__).resolve().parent / ".restart_notice.json"
+RUNTIME_STATE_KEY = web.AppKey("runtime_state", dict)
 
 
 def setup_logging() -> None:
@@ -56,12 +59,20 @@ def create_web_app() -> web.Application:
     static_dir = webapp_dir / "static"
 
     app = web.Application()
+    app[RUNTIME_STATE_KEY] = {"polling_ready": False}
+    started_at = time.monotonic()
 
     async def webapp_index(_: web.Request) -> web.FileResponse:
         return web.FileResponse(webapp_dir / "index.html")
 
     async def webapp_health(_: web.Request) -> web.Response:
-        return web.json_response({"ok": True})
+        return web.json_response({
+            "ok": True,
+            "pid": os.getpid(),
+            "version": __version__,
+            "uptime_seconds": int(time.monotonic() - started_at),
+            "polling_ready": app[RUNTIME_STATE_KEY]["polling_ready"],
+        })
 
     app.router.add_get("/webapp", webapp_index)
     app.router.add_get("/webapp/health", webapp_health)
@@ -164,6 +175,13 @@ async def _run_bot() -> None:
     web_runner = await start_web_server()
     bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
     dp = create_dispatcher()
+
+    async def mark_polling_ready(bot: Bot) -> None:
+        # Validate the Telegram connection before reporting a ready bot to UI.
+        await bot.me()
+        web_runner.app[RUNTIME_STATE_KEY]["polling_ready"] = True
+
+    dp.startup.register(mark_polling_ready)
     logging.info("Бот запущен. Версия: %s", __version__)
     digest_task = asyncio.create_task(run_daily_digest_scheduler(bot))
     try:
@@ -171,11 +189,13 @@ async def _run_bot() -> None:
         await notify_restart_complete(bot)
         await dp.start_polling(bot)
     finally:
+        web_runner.app[RUNTIME_STATE_KEY]["polling_ready"] = False
         digest_task.cancel()
         try:
             await digest_task
         except asyncio.CancelledError:
             pass
+        await bot.session.close()
         await web_runner.cleanup()
 
 

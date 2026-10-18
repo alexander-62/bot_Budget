@@ -58,6 +58,11 @@ credentials.json
 .bot-start.lock
 .tray.lock
 .tray-start.lock
+.desktop.lock
+.desktop-start.lock
+.desktop.pid
+.desktop.show
+artifacts/
 bot.log
 *.log
 publication/
