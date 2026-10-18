@@ -94,7 +94,7 @@ class AutostartTests(unittest.TestCase):
             startup.set_enabled(True)
             self.assertTrue(startup.is_enabled())
             self.assertEqual(startup.command, subprocess.list2cmdline([
-                str(Path(folder) / "pythonw.exe"), str(Path(folder) / "manage_bot.py"),
+                str(Path(folder) / "pythonw.exe"), str(Path(folder).resolve() / "manage_bot.py"),
                 "ui", "--minimized", "--start-bot",
             ]))
             registry.CreateKey.assert_called_once_with("HKCU", RUN_KEY)
