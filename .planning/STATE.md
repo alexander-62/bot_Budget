@@ -2,44 +2,54 @@
 gsd_state_version: 1.0
 milestone: v1.6.0
 milestone_name: Multiple Budget Bots
-status: planning
-last_updated: "2026-10-21T13:22:23.455Z"
+status: implementation_complete
+last_updated: "2026-10-21"
 last_activity: 2026-10-21
 progress:
-  total_phases: 0
-  completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
-  percent: 0
+  total_phases: 4
+  completed_phases: 4
+  total_plans: 4
+  completed_plans: 4
+  percent: 100
 ---
 
 # Project State: Bot Budget
 
-**Initialized:** 2026-06-29
-**Current Phase:** Phase 8 - Evening Daily Digest
-**Status:** Complete; pending live sheet header rollout
+## Current Position
+
+Phase: 12 ? Platform Verification
+Plan: 12-01 complete
+Status: Implementation complete; actual business onboarding pending
+Last activity: 2026-10-21 ? v1.6.0 implemented; 89 tests / 21 modules passed, publication audit zero findings.
 
 ## Project Reference
 
-See: `.planning/PROJECT.md` (updated 2026-06-29)
-
-**Core value:** Users can record expenses in Telegram quickly and reliably, and the household gets a daily reminder with a shared category summary so missed expenses are caught the same evening.
-**Current focus:** Roll out the evening daily digest by adding the required `Users` sheet headers and restarting the bot.
+See PROJECT.md and ROADMAP.md. Phases 1?8 remain as history. Current milestone phases 9?12 have PLAN, SUMMARY and passed VERIFICATION files.
 
 ## Phase Status
 
 | Phase | Status | Requirements |
-|-------|--------|--------------|
-| 1. Spreadsheet Adapter Cache | Complete | PERF-01, PERF-02 |
-| 2. Read Path Optimization | Complete | PERF-03, PERF-04, PERF-05 |
-| 3. Async Responsiveness Boundary | Complete | ASYNC-01, ASYNC-02, ASYNC-03 |
-| 4. Append-Safe Expense Writes | Complete | EXP-01, EXP-02, EXP-03 |
-| 5. Operational Reliability Cleanup | Complete | OPS-01, OPS-02, OPS-03 |
-| 6. Test Harness and Quality Gate | Complete | TEST-01, TEST-02, TEST-03, TEST-04 |
-| 7. Autosave Expense UX | Complete | UX-01, UX-02, UX-03, UX-04, UX-05 |
-| 8. Evening Daily Digest | Complete | DIGEST-01, DIGEST-02, DIGEST-03, DIGEST-04, DIGEST-05, DIGEST-06 |
+|---|---|---|
+| 9. Bot Profiles | Complete | PROF-01/02/03, DATA-01/02, AUTH-03 |
+| 10. Profile Processes | Complete | PROC-01/02/03 |
+| 11. Multi-Bot Panel | Complete | UI-01/02/03/04 |
+| 12. Platform Verification | Complete | TEST-05, DOC-01 |
 
-## Notes
+## Next Action
+
+Operator opens `bot.bat ui`, adds new business token and dedicated Sheet, selects RUB, validates and starts the profile. Verify /start and first expense with allowed user IDs. Existing personal data and local secrets were not modified by the implementation. No actual business deployment is claimed.
+
+## Decisions and Verification
+
+- Common code, one process and spreadsheet per profile; single global panel/tray.
+- Windows DPAPI protects new tokens; legacy personal config preserved.
+- New profiles authorize numerical IDs; visibility shared within each bot.
+- Isolated full suite passes 89 tests; fake two-worker integration and legacy v1.5 personal migration covered.
+- Panel/form screenshots checked using scoped window HWND capture; no real credentials in screenshots.
+- Installed SDK uses legacy CLI syntax; state milestone switch succeeded. Final state written atomically with matching frontmatter/body, preserving historical notes below.
+- No push, live service calls, financial writes or Windows-login changes were performed.
+
+## Historical Notes
 
 - Existing `.planning/codebase/` map is available and should be read before implementation phases.
 - Phase 4 added append-safe writes plus saved row identity and `expense_id` verification.
@@ -53,10 +63,3 @@ See: `.planning/PROJECT.md` (updated 2026-06-29)
 - 2026-06-29: Remote restart now writes a restart marker and the next bot start sends an explicit "Бот снова запущен" message before polling.
 - 2026-07-09: Started Phase 8 evening daily digest as a new milestone slice. Digest recipients are configured only in the `Users` sheet.
 - 2026-07-09: Completed Phase 8 implementation and tests. Live rollout requires `digest_enabled` and `last_digest_date` headers in `Users`.
-
-## Current Position
-
-Phase: Not started (defining requirements)
-Plan: —
-Status: Defining requirements
-Last activity: 2026-10-21 — Milestone v1.6.0 started

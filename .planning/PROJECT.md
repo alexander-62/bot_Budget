@@ -2,7 +2,7 @@
 
 ## What This Is
 
-Bot Budget is an existing Telegram bot for personal or household budget tracking. It lets allowed Telegram users view limits, add expenses, inspect recent expenses, and manage a shared shopping list backed by Google Sheets.
+Bot Budget is a local platform for multiple independent Telegram budget bots controlled from a shared Windows panel. It lets allowed Telegram users view limits, add expenses, inspect recent expenses, and manage a shared shopping list backed by Google Sheets.
 
 The current improvement project keeps Google Sheets as the visible data store, but makes the bot feel faster, safer to change, and easier to use during repeated expense entry.
 
@@ -42,10 +42,10 @@ Users can record expenses in Telegram quickly and reliably, and the household ge
 - Runtime smoke check passes under installed dependencies.
 
 ### Active
-- [ ] Profile registry, legacy compatibility, secret isolation and per-profile currencies/access (phase 9).
-- [ ] Independent lifecycle, health identity and selective Windows autostart (phase 10).
-- [ ] Profile selection, add/edit/connect validation and management in the desktop panel (phase 11).
-- [ ] Fake-based integration verification and business onboarding documentation (phase 12).
+- [x] Profile registry, legacy compatibility, secret isolation and per-profile currencies/access (phase 9).
+- [x] Independent lifecycle, health identity and selective Windows autostart (phase 10).
+- [x] Profile selection, add/edit/connect validation and management in the desktop panel (phase 11).
+- [x] Fake-based integration verification and business onboarding documentation (phase 12).
 
 ### Out of Scope
 
@@ -116,3 +116,7 @@ After each milestone:
 
 ---
 *Last updated: 2026-07-09 for phase 8 daily digest*
+
+## v1.6.0 implementation result ? 2026-10-21
+
+Phases 9?12 complete: independent profile configuration/processes/Sheets/access, EUR/RUB and timezone handling, validated desktop onboarding, DPAPI token storage and selective autostart. 89 tests across 21 isolated modules pass. User-supplied business token and Sheet are still needed for live onboarding; no production profile or expense was fabricated.

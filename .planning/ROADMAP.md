@@ -5,10 +5,10 @@
 
 | Phase | Goal | Requirements | Status |
 |---|---|---|---|
-| 9. Bot Profiles | Профили, секреты, валюты, доступ, совместимость | PROF-01, PROF-02, PROF-03, DATA-01, DATA-02, AUTH-03 | In progress |
-| 10. Profile Processes | Независимый запуск, health и автозапуск | PROC-01, PROC-02, PROC-03 | In progress |
-| 11. Multi-Bot Panel | Добавление, проверка и управление в панели | UI-01, UI-02, UI-03, UI-04 | In progress |
-| 12. Platform Verification | Изоляция, регрессии, документация | TEST-05, DOC-01 | Planned |
+| 9. Bot Profiles | Профили, секреты, валюты, доступ, совместимость | PROF-01, PROF-02, PROF-03, DATA-01, DATA-02, AUTH-03 | Complete |
+| 10. Profile Processes | Независимый запуск, health и автозапуск | PROC-01, PROC-02, PROC-03 | Complete |
+| 11. Multi-Bot Panel | Добавление, проверка и управление в панели | UI-01, UI-02, UI-03, UI-04 | Complete |
+| 12. Platform Verification | Изоляция, регрессии, документация | TEST-05, DOC-01 | Complete |
 
 ## Phase 9: Bot Profiles
 
@@ -55,3 +55,6 @@
 ## Execution notes
 
 Секции реализации делегированы экономичной модели по непересекающимся файлам и общей API-спецификации. Интеграция следует зависимостям фаз. Пользовательские изменения AGENTS.md не входят в коммиты.
+## Next step
+
+Implementation phases 9?12 complete, version 1.6.0. Open `bot.bat ui` and add the actual business bot and separate Sheet with RUB. Live token/table onboarding and first real expense remain unperformed.
