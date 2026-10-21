@@ -9,7 +9,8 @@
 | 10. Profile Processes | Независимый запуск, health и автозапуск | PROC-01, PROC-02, PROC-03 | Complete |
 | 11. Multi-Bot Panel | Добавление, проверка и управление в панели | UI-01, UI-02, UI-03, UI-04 | Complete |
 | 12. Platform Verification | Изоляция, регрессии, документация | TEST-05, DOC-01 | Complete |
-| 13. Optional Money Sources | 1/1 | Complete    | 2026-10-21 |
+| 13. Optional Money Sources | Включаемый источник денег в записи расходов | SRC-01, SRC-02, SRC-03, SRC-04, SRC-05, SRC-06 | Complete |
+| 14. Per-Bot Profile Pictures | Своя локальная картинка каждого бота в панели | IMG-01, IMG-02, IMG-03, IMG-04 | In progress |
 
 ## Phase 9: Bot Profiles
 
@@ -86,3 +87,20 @@ Implementation phases 9-13 complete, version 1.6.1. Deliver commits to the bot c
 Plans:
 
 - [x] 13-01-PLAN.md — Optional money sources: profile/data, Telegram flow, desktop and verification.
+
+### Phase 14: Per-bot profile pictures
+
+**Goal:** Select/reset independent pictures for each bot in the Windows panel, preserving settings and compatibility.
+**Requirements**: IMG-01, IMG-02, IMG-03, IMG-04
+**Depends on:** Phase 13
+**Plans:** 1 plan
+
+**Success criteria:**
+1. Every selected bot displays its own managed image or default; old JSON profiles still load.
+2. Choose/reset works for running and legacy personal profiles without token access or other settings changes.
+3. Late saves and native dialog selection changes never retarget a different profile; invalid images preserve the old picture.
+4. Generated-image, UI and regression checks pass; scope remains panel-only.
+
+Plans:
+
+- [ ] 14-01-PLAN.md — Profile images, panel select/reset and verification.

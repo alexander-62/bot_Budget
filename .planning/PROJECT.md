@@ -42,6 +42,7 @@ Users can record expenses in Telegram quickly and reliably, and the household ge
 - Runtime smoke check passes under installed dependencies.
 
 ### Active
+- [ ] Phase 14: independent pictures for each bot in the local panel; native selection/reset, managed assets and safe profile switching (IMG-01 through IMG-04).
 - [x] Phase 13: per-profile optional source of funds, own-sheet source list, expense entry/edit/persistence and desktop toggle (SRC-01 through SRC-06).
 - [x] Profile registry, legacy compatibility, secret isolation and per-profile currencies/access (phase 9).
 - [x] Independent lifecycle, health identity and selective Windows autostart (phase 10).

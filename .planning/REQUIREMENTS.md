@@ -46,6 +46,15 @@
 
 All SRC requirements map to phase 13. Prior 15 requirements remain complete.
 
+## Phase 14 Requirements — Panel pictures
+
+- [ ] **IMG-01**: Each profile has a backward-compatible local image setting; old profiles use the existing default logo/initial.
+- [ ] **IMG-02**: Operator chooses or clears a picture for any selected bot, including running and legacy personal, without tokens/network or other settings changes.
+- [ ] **IMG-03**: Imported assets are bounded valid managed copies; card/icon selection and late worker completion cannot use another profile's picture or overwrite newer metadata.
+- [ ] **IMG-04**: Generated-image and real-widget regressions, full suite, visual QA and local-asset documentation pass; Telegram avatars remain outside scope.
+
+All IMG requirements map to phase 14. User explicitly confirmed pictures only in the panel.
+
 ## Future Requirements
 
 Серверное размещение, удалённая панель, общий ограничитель Sheets-нагрузки, база данных при измеренной необходимости, явная миграция личного доступа на ID, профильный выбор shopping/limits.
