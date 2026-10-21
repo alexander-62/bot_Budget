@@ -30,6 +30,17 @@
 - [x] **TEST-05**: Fakes подтверждают изоляцию двух профилей и добавление третьего; старые tests проходят без секретов/живых записей.
 - [x] **DOC-01**: Руководство: Telegram-бот, схема бизнес-таблицы, Users IDs, доступ сервисного аккаунта, RUB-профиль в панели.
 
+## Phase 13 Requirements — Optional money sources
+
+- [ ] **SRC-01**: Each bot profile has a persisted boolean source-tracking setting, default false for existing and personal profiles, editable in the desktop form.
+- [ ] **SRC-02**: Enabled profiles read active sources from their own «Источники» Sheet; disabled profiles do not require/read it. Startup/connection validation enforces the optional schema only when enabled.
+- [ ] **SRC-03**: Enabled expense entry requires source selection before amount; callbacks remain safe when lists change or sessions expire.
+- [ ] **SRC-04**: Expense source is stored in I without moving H expense_id; old rows remain blank and source survives amount/comment edits and feature disabling.
+- [ ] **SRC-05**: Enabled confirmation, recent expenses and saved editing show/allow changing source; source edits preserve amount/comment and stable record identity.
+- [ ] **SRC-06**: Fake-based flow/data/UI regression tests pass; business setup documents the toggle and optional schema without live financial writes.
+
+All SRC requirements map to phase 13. Prior 15 requirements remain complete.
+
 ## Future Requirements
 
 Серверное размещение, удалённая панель, общий ограничитель Sheets-нагрузки, база данных при измеренной необходимости, явная миграция личного доступа на ID, профильный выбор shopping/limits.
