@@ -87,7 +87,16 @@ class DesktopUITests(unittest.TestCase):
             path = Path(screenshot)
             path.parent.mkdir(parents=True, exist_ok=True)
             x, y = self.panel.winfo_rootx(), self.panel.winfo_rooty()
-            ImageGrab.grab(bbox=(x, y, x + self.panel.winfo_width(), y + self.panel.winfo_height())).save(path)
+            if os.name == "nt":
+                import ctypes
+                from ctypes import wintypes
+                user32 = ctypes.WinDLL("user32", use_last_error=True)
+                user32.GetAncestor.argtypes = (wintypes.HWND, wintypes.UINT)
+                user32.GetAncestor.restype = wintypes.HWND
+                window = user32.GetAncestor(self.panel.winfo_id(), 2)
+                ImageGrab.grab(window=window).save(path)
+            else:
+                ImageGrab.grab(bbox=(x, y, x + self.panel.winfo_width(), y + self.panel.winfo_height())).save(path)
 
     def test_close_hides_and_reopen_shows_same_window(self):
         with patch.object(self.panel, "_tray_available", return_value=True):
@@ -118,7 +127,7 @@ class DesktopUITests(unittest.TestCase):
         self.panel._render_status(stopped)
         self.assertTrue(self.panel._busy)
         self.assertFalse(self.panel._startup_requested)
-        self.panel._submit.assert_called_once_with("action", desktop_app.run_manager_action, "start")
+        self.panel._submit.assert_called_once_with(("action", self.panel._generation), desktop_app.run_manager_action, "start", "personal")
 
 
 if __name__ == "__main__":

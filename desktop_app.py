@@ -1,11 +1,13 @@
 """Small Windows control panel; Telegram and Sheets stay in the bot process."""
 
 import argparse
+from dataclasses import replace
 from concurrent.futures import ThreadPoolExecutor
 import logging
 import os
 from pathlib import Path
 from queue import Empty, Queue
+from threading import Event
 import subprocess
 import sys
 import webbrowser
@@ -17,6 +19,8 @@ from PIL import Image, ImageTk
 from services.desktop_status import DesktopStatus, collect_status, format_uptime, read_int
 from services.process_control import ProcessLock, is_process_running
 from services.windows_autostart import WindowsAutostart
+from services.bot_profiles import BotProfile, list_profiles, get_profile_token, save_profile, update_profile
+from services.profile_validation import ValidationResult, validate_profile, normalize_spreadsheet_id
 from version import __version__
 
 
@@ -30,20 +34,47 @@ GREEN, AMBER, RED = "#65D6A5", "#E9BF77", "#F08D95"
 UI_FONT = "Segoe UI" if os.name == "nt" else "DejaVu Sans"
 
 
-def run_manager_action(command: str) -> str:
+def run_manager_action(command: str, profile_id: str = "personal") -> str:
     if command not in {"start", "stop", "restart"}:
         raise ValueError("Неизвестная команда управления.")
     kwargs = {"creationflags": subprocess.CREATE_NO_WINDOW} if os.name == "nt" else {}
     env = os.environ.copy()
     env["PYTHONUTF8"] = "1"
     result = subprocess.run(
-        [sys.executable, str(BASE_DIR / "manage_bot.py"), command],
+        [sys.executable, str(BASE_DIR / "manage_bot.py"), command, "--profile", profile_id],
         cwd=BASE_DIR, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
         text=True, encoding="utf-8", errors="replace", timeout=30, check=False, **kwargs,
     )
     if result.returncode:
         raise RuntimeError("Команда не выполнена. Подробности — в bot.log.")
     return result.stdout.strip()
+
+
+def save_validated_profile(candidate, original, token, cancelled):
+    actual_token = token or (get_profile_token(original, BASE_DIR) if original else "")
+    result = validate_profile(candidate, actual_token, profiles=list_profiles(BASE_DIR),
+                              token_loader=lambda p: get_profile_token(p, BASE_DIR))
+    if not result.ok or cancelled.is_set():
+        return result, None
+    runtime = candidate.runtime_dir(BASE_DIR)
+    runtime.mkdir(parents=True, exist_ok=True)
+    # Serialize with manager startup and hold the worker lock through persistence.
+    # A worker started while validation was in flight must keep its old settings.
+    start_lock = ProcessLock(runtime / ".bot-start.lock")
+    bot_lock = ProcessLock(runtime / ".bot.lock")
+    try:
+        if not start_lock.acquire() or not bot_lock.acquire():
+            return ValidationResult(False, "Бот запущен или запускается. Остановите его и сохраните настройки снова."), None
+        pid = read_int(runtime / ".bot.pid")
+        if pid and is_process_running(pid):
+            return ValidationResult(False, "Бот запущен. Остановите его перед изменением настроек."), None
+        if cancelled.is_set():
+            return result, None
+        function = update_profile if original else save_profile
+        return result, function(candidate, token=token or None, base_dir=BASE_DIR)
+    finally:
+        bot_lock.release()
+        start_lock.release()
 
 
 class BudgetPanel(ctk.CTk):
@@ -68,7 +99,19 @@ class BudgetPanel(ctk.CTk):
         self._startup_requested = start_bot
         self._refresh_again = False
         self._last_status = None
-        self._autostart = WindowsAutostart(BASE_DIR)
+        try:
+            self.profiles = list_profiles(BASE_DIR)
+        except ValueError as error:
+            from tkinter import messagebox
+            messagebox.showerror("Не удалось открыть профили", str(error), parent=self)
+            self._executor.shutdown(wait=False, cancel_futures=True)
+            self.destroy()
+            return
+        self.selected_profile = self.profiles[0]
+        self._generation = 0
+        self._profile_statuses = {}
+        self._editor = None
+        self._autostart = WindowsAutostart(BASE_DIR, profiles_mode=True)
         self._build_ui()
         self._set_icon()
         self._poll_id = self.after(150, self._drain_events)
@@ -96,6 +139,17 @@ class BudgetPanel(ctk.CTk):
 
         body = ctk.CTkScrollableFrame(self, fg_color="transparent", corner_radius=0, scrollbar_button_color=BORDER)
         body.grid(row=1, column=0, sticky="nsew", padx=30)
+        body.grid_columnconfigure(0, weight=1)
+        selector = ctk.CTkFrame(body, fg_color="transparent")
+        selector.grid(row=0, column=0, sticky="ew", pady=(0, 14))
+        selector.grid_columnconfigure(0, weight=1)
+        self.profile_menu = ctk.CTkOptionMenu(selector, values=self._profile_labels(), command=self._select_profile)
+        self.profile_menu.grid(row=0, column=0, sticky="ew", padx=(0, 10))
+        ctk.CTkButton(selector, text="Добавить бота", width=115, command=self._add_profile).grid(row=0, column=1, padx=5)
+        self.edit_button = ctk.CTkButton(selector, text="Настройки", width=100, command=self._edit_profile)
+        self.edit_button.grid(row=0, column=2)
+        body = ctk.CTkFrame(body, fg_color="transparent")
+        body.grid(row=1, column=0, sticky="ew")
         body.grid_columnconfigure(0, weight=1)
 
         hero = ctk.CTkFrame(body, fg_color=CARD, corner_radius=22, border_width=1, border_color=BORDER)
@@ -171,6 +225,10 @@ class BudgetPanel(ctk.CTk):
         preferences = ctk.CTkFrame(body, fg_color=CARD, corner_radius=16)
         preferences.grid(row=5, column=0, sticky="ew", pady=(10, 0))
         preferences.grid_columnconfigure(0, weight=1)
+        self.profile_autostart_var = ctk.BooleanVar(value=self.selected_profile.autostart)
+        self.profile_autostart_switch = ctk.CTkSwitch(preferences, text="Включать выбранного бота при входе", variable=self.profile_autostart_var, command=self._toggle_profile_autostart)
+        self.profile_autostart_switch.grid(row=2, column=0, columnspan=2, sticky="w", padx=20, pady=(0, 18))
+        ctk.CTkButton(preferences, text="Открыть таблицу выбранного бота", command=self._open_spreadsheet).grid(row=3, column=0, columnspan=2, sticky="ew", padx=20, pady=(0, 18))
         self._label(preferences, "Запускать вместе с Windows", 14, bold=True).grid(
             row=0, column=0, sticky="w", padx=20, pady=(17, 0),
         )
@@ -215,7 +273,7 @@ class BudgetPanel(ctk.CTk):
             try:
                 self._events.put((kind, function(*args), None))
             except Exception as exc:
-                logging.exception("Desktop operation failed: %s", kind)
+                logging.error("Desktop operation failed: %s", kind)
                 self._events.put((kind, None, exc))
         self._executor.submit(work)
 
@@ -223,7 +281,9 @@ class BudgetPanel(ctk.CTk):
         if self._refresh_pending or self._closed:
             return
         self._refresh_pending = True
-        self._submit("status", collect_status, BASE_DIR, WEBAPP_HOST, WEBAPP_PORT, __version__)
+        generation = self._generation
+        profile_id = self.selected_profile.id
+        self._submit(("status", generation), lambda: collect_status(BASE_DIR, WEBAPP_HOST, WEBAPP_PORT, __version__, profile_id=profile_id))
 
     def _scheduled_refresh(self):
         self.refresh()
@@ -236,6 +296,13 @@ class BudgetPanel(ctk.CTk):
                 kind, result, error = self._events.get_nowait()
             except Empty:
                 break
+            if isinstance(kind, tuple):
+                kind, generation = kind
+                if generation != self._generation:
+                    continue
+            if kind == "profile-save":
+                self._finish_profile_save(result, error)
+                continue
             if kind == "status":
                 self._refresh_pending = False
                 if error:
@@ -274,6 +341,9 @@ class BudgetPanel(ctk.CTk):
 
     def _render_status(self, status: DesktopStatus):
         self._last_status = status
+        self._profile_statuses[self.selected_profile.id] = status.state
+        self.profile_menu.configure(values=self._profile_labels())
+        self.profile_menu.set(self._profile_label(self.selected_profile))
         self._keep_accessible()
         title, detail, color, badge = {
             "running": ("Бот работает", "Готов принимать ваши траты в Telegram.", GREEN, "На связи"),
@@ -302,6 +372,7 @@ class BudgetPanel(ctk.CTk):
 
     def _update_buttons(self):
         running = bool(self._last_status and self._last_status.pid)
+        self.edit_button.configure(state="disabled" if running or self._busy or self.selected_profile.legacy else "normal")
         for command, button in self.action_buttons.items():
             enabled = not self._busy and ((command == "start" and not running) or (command != "start" and running))
             button.configure(state="normal" if enabled else "disabled")
@@ -313,7 +384,7 @@ class BudgetPanel(ctk.CTk):
         self._startup_requested = False
         self._update_buttons()
         self.feedback.configure(text={"start": "Запускаем бота…", "restart": "Перезапускаем бота…", "stop": "Останавливаем бота…"}[command], text_color=MUTED)
-        self._submit("action", run_manager_action, command)
+        self._submit(("action", self._generation), run_manager_action, command, self.selected_profile.id)
 
     def _toggle_autostart(self):
         enabled = self.autostart_var.get()
@@ -326,8 +397,9 @@ class BudgetPanel(ctk.CTk):
             self.feedback.configure(text="Автозапуск при входе в Windows включён." if enabled else "Автозапуск Windows выключен.", text_color=MUTED)
 
     def _open_log(self):
-        path = BASE_DIR / "bot.log"
+        path = self.selected_profile.runtime_dir(BASE_DIR) / "bot.log"
         try:
+            path.parent.mkdir(parents=True, exist_ok=True)
             path.touch(exist_ok=True)
             if os.name == "nt":
                 os.startfile(path)
@@ -335,6 +407,152 @@ class BudgetPanel(ctk.CTk):
                 webbrowser.open(path.as_uri())
         except OSError:
             self.feedback.configure(text="Не удалось открыть лог.", text_color=RED)
+
+    def _profile_label(self, profile):
+        state = self._profile_statuses.get(profile.id)
+        badge = {"running": "работает", "stopped": "остановлен", "offline": "нет сети", "starting": "запускается"}.get(state, "не проверен")
+        return f"{profile.name} ({profile.id}) — {badge}"
+
+    def _profile_labels(self):
+        return [self._profile_label(profile) for profile in self.profiles]
+
+    def _select_profile(self, label):
+        profile = next((p for p in self.profiles if self._profile_label(p) == label), None)
+        if profile is None or profile.id == self.selected_profile.id:
+            return
+        self._generation += 1
+        self.selected_profile = profile
+        self._last_status = None
+        self._refresh_pending = self._busy = self._refresh_again = self._startup_requested = False
+        self.profile_autostart_var.set(profile.autostart)
+        self.headline.configure(text=profile.name)
+        self.badge.configure(text="Проверяем выбранного бота", text_color=MUTED)
+        self._update_buttons()
+        # Until status is known, avoid submitting a start to an already running profile.
+        for button in self.action_buttons.values():
+            button.configure(state="disabled")
+        self.refresh()
+
+    def _toggle_profile_autostart(self):
+        enabled = self.profile_autostart_var.get()
+        try:
+            profile = update_profile(replace(self.selected_profile, autostart=enabled), base_dir=BASE_DIR)
+        except Exception:
+            self.profile_autostart_var.set(not enabled)
+            self.feedback.configure(text="Не удалось сохранить автозапуск профиля.", text_color=RED)
+            return
+        self.selected_profile = profile
+        self.profiles = list_profiles(BASE_DIR)
+        self.feedback.configure(text="Выбор сохранён. Для входа в Windows включите общий автозапуск выше.", text_color=MUTED)
+
+    def _open_spreadsheet(self):
+        spreadsheet_id = self.selected_profile.spreadsheet_id
+        if self.selected_profile.legacy and not spreadsheet_id:
+            from config import SPREADSHEET_ID
+            spreadsheet_id = SPREADSHEET_ID
+        if spreadsheet_id:
+            webbrowser.open(f"https://docs.google.com/spreadsheets/d/{spreadsheet_id}/edit")
+
+    def _add_profile(self):
+        self._show_profile_editor(None)
+
+    def _edit_profile(self):
+        if self._busy or not self._last_status or self._last_status.pid or self.selected_profile.legacy:
+            self.feedback.configure(text="Остановите бота перед изменением настроек. Личный профиль настраивается через конфигурацию.", text_color=AMBER)
+            return
+        self._show_profile_editor(self.selected_profile)
+
+    def _show_profile_editor(self, profile):
+        if getattr(self, "_saving_profile", False):
+            self.feedback.configure(text="Дождитесь окончания текущей проверки профиля.", text_color=AMBER)
+            return
+        if self._editor is not None and self._editor.winfo_exists():
+            self._editor.lift()
+            return
+        editor = self._editor = ctk.CTkToplevel(self, fg_color=BG)
+        editor_generation = self._generation
+        cancelled = Event()
+        def cancel_editor():
+            cancelled.set()
+            editor.destroy()
+        editor.protocol("WM_DELETE_WINDOW", cancel_editor)
+        editor.title("Настройки бота" if profile else "Добавить бота")
+        editor.geometry("560x640")
+        editor.transient(self)
+        editor.grid_columnconfigure(0, weight=1)
+        editor.grid_rowconfigure(0, weight=1)
+        form = ctk.CTkScrollableFrame(editor, fg_color=BG)
+        form.grid(row=0, column=0, sticky="nsew", padx=18, pady=18)
+        form.grid_columnconfigure(0, weight=1)
+        fields = {}
+        definitions = [("name", "Название"), ("id", "ID профиля (латиница, цифры, дефис)"),
+                       ("spreadsheet_id", "Ссылка или ID Google Sheets"), ("currency", "Валюта"),
+                       ("timezone", "Часовой пояс"), ("credentials_file", "Путь к ключу Google (пусто — общий ключ)"),
+                       ("token", "Токен Telegram (пусто — сохранить текущий)" if profile else "Токен Telegram из BotFather")]
+        for row, (key, label) in enumerate(definitions):
+            self._label(form, label, 13).grid(row=row * 2, column=0, sticky="w", pady=(10, 4))
+            if key == "currency":
+                widget = ctk.CTkOptionMenu(form, values=["EUR", "RUB"])
+                widget.set(profile.currency if profile else "EUR")
+            else:
+                widget = ctk.CTkEntry(form, height=36, show="•" if key == "token" else "")
+                value = getattr(profile, key, "") if profile else ("Europe/Moscow" if key == "timezone" else "")
+                widget.insert(0, value)
+                if profile and key == "id":
+                    widget.configure(state="disabled")
+            widget.grid(row=row * 2 + 1, column=0, sticky="ew")
+            fields[key] = widget
+        notice = self._label(form, "Проверка Telegram и структуры таблицы выполняется перед сохранением.", 12, MUTED, wraplength=440)
+        notice.grid(row=14, column=0, sticky="ew", pady=14)
+        save = ctk.CTkButton(editor, text="Проверить и сохранить", height=38)
+        save.grid(row=1, column=0, sticky="ew", padx=26, pady=(0, 8))
+        cancel = ctk.CTkButton(editor, text="Отмена", fg_color=CARD, command=cancel_editor)
+        cancel.grid(row=2, column=0, sticky="ew", padx=26, pady=(0, 18))
+        editor.bind("<Escape>", lambda event: cancel_editor())
+
+        def submit():
+            try:
+                values = {key: widget.get().strip() for key, widget in fields.items()}
+                values["spreadsheet_id"] = normalize_spreadsheet_id(values["spreadsheet_id"])
+                token = values.pop("token")
+                candidate = replace(profile, **values) if profile else BotProfile(**values)
+            except Exception:
+                notice.configure(text="Проверьте поля: название, ID профиля и ссылка на таблицу обязательны.", text_color=RED)
+                return
+            save.configure(state="disabled")
+            self._saving_profile = True
+            notice.configure(text="Проверяем Telegram и Google Sheets…", text_color=MUTED)
+            # Form identity is separate from selected profile generation: switching
+            # profiles cannot redirect this save or apply its response to another form.
+            self._save_context = (editor, save, notice, candidate, editor_generation)
+            self._submit("profile-save", save_validated_profile, candidate, profile, token, cancelled)
+        save.configure(command=submit)
+
+    def _finish_profile_save(self, result, error):
+        self._saving_profile = False
+        editor, save, notice, candidate, generation = self._save_context
+        if result and result[1]:
+            self.profiles = list_profiles(BASE_DIR)
+            self.profile_menu.configure(values=self._profile_labels())
+        if not editor.winfo_exists():
+            return
+        save.configure(state="normal")
+        if error or not result or not result[0].ok:
+            notice.configure(text="Не удалось сохранить. Проверьте ID, валюту, часовой пояс и доступ к ключу." if error else result[0].message, text_color=RED)
+            return
+        if generation != self._generation:
+            self.profile_menu.set(self._profile_label(self.selected_profile))
+        elif self.selected_profile.id == result[1].id:
+            self.selected_profile = result[1]
+            self._generation += 1
+            self._last_status = None
+            self._refresh_pending = False
+            self.profile_menu.set(self._profile_label(self.selected_profile))
+            self.refresh()
+        else:
+            self._select_profile(self._profile_label(result[1]))
+        self.feedback.configure(text="Профиль сохранён после проверки Telegram и Google Sheets.", text_color=GREEN)
+        editor.destroy()
 
     def _tray_available(self):
         pid = read_int(BASE_DIR / ".tray.pid")
