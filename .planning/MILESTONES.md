@@ -13,3 +13,7 @@ Implementation phases 9?12 verified with 89 tests in 21 modules and zero publica
 ## Phase 13 follow-up - runtime v1.6.1, 2026-10-21
 
 Optional money sources implemented and verified: per-profile boolean, active own-sheet sources, column I persistence, safe entry/edit/recent views and desktop toggle. 109 tests/25 modules pass, publication findings 0. Remote rollout and real business configuration remain operator actions.
+
+## Phase 14 follow-up - runtime v1.6.2, 2026-10-21
+
+Independent panel pictures implemented and verified: managed local imports, select/reset, metadata-only persistence and safe profile routing. Scope explicitly panel only. 122 tests/27 modules pass plus final 18 affected UI regressions, zero publication findings. Separate commit from phase13; remote deployment pending.

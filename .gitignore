@@ -59,6 +59,7 @@ credentials.json
 .ports-start.lock
 .bot.identity.json
 .profiles.lock
+.profile-images/
 .tray.lock
 .tray-start.lock
 .desktop.lock

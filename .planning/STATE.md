@@ -4,12 +4,12 @@ milestone: v1.6.0
 milestone_name: Multiple Budget Bots
 status: implementation_complete
 last_updated: "2026-10-21T15:14:29.102Z"
-last_activity: 2026-10-21 - Phase 13 complete; v1.6.1 optional money sources; 109 tests / 25 modules passed.
+last_activity: 2026-10-21 - Phase 14 complete; v1.6.2 per-bot panel pictures; tests passed.
 progress:
-  total_phases: 5
-  completed_phases: 5
-  total_plans: 5
-  completed_plans: 5
+  total_phases: 6
+  completed_phases: 6
+  total_plans: 6
+  completed_plans: 6
   percent: 100
 ---
 
@@ -17,14 +17,14 @@ progress:
 
 ## Current Position
 
-Phase: 13 - Optional money sources complete
-Plan: 13-01 complete
+Phase: 14 - Per-bot profile pictures complete
+Plan: 14-01 complete
 Status: Implementation complete; remote update and real business setup pending
-Last activity: 2026-10-21 - Phase 13 complete; 109 tests / 25 modules pass; zero publication findings.
+Last activity: 2026-10-21 - Panel pictures v1.6.2; 122 tests/27 modules plus final 18 UI checks passed.
 
 ## Project Reference
 
-See PROJECT.md and ROADMAP.md. Active milestone phases 9-13 have PLAN, SUMMARY and passed VERIFICATION files. Phases 1-8 remain history.
+See PROJECT.md and ROADMAP.md. Active milestone phases 9-14 have PLAN, SUMMARY and passed VERIFICATION files. Phases 1-8 remain history.
 
 ## Phase Status
 
@@ -35,6 +35,7 @@ See PROJECT.md and ROADMAP.md. Active milestone phases 9-13 have PLAN, SUMMARY a
 | 11. Multi-Bot Panel | Complete | UI-01/02/03/04 |
 | 12. Platform Verification | Complete | TEST-05, DOC-01 |
 | 13. Optional Money Sources | Complete | SRC-01/02/03/04/05/06 |
+| 14. Per-Bot Profile Pictures | Complete | IMG-01/02/03/04 |
 
 ## Next Action
 
@@ -71,3 +72,9 @@ Operator opens `bot.bat ui`, adds new business token and dedicated Sheet, select
 - Optional money-source tracking shipped locally in v1.6.1, default disabled. H identity and prior expense data preserved, I source opt-in.
 - For business after remote delivery: prepare source Sheet and I header; stop profile, enable checkbox, validate/save, restart. Personal requires no table changes.
 - No GitHub push, production profile changes, live bot calls or financial writes were performed. User AGENTS.md edits remain uncommitted.
+
+## Phase 14 follow-up
+
+- Added via GSD phase add; user confirmed pictures only in panel. Completed select/reset, managed assets and safe profile routing.
+- Phase 13 already committed at 16dd16f; picture feature saved separately. No actual image/profile/API changes or GitHub push.
+- Next: after remote update, choose each image from its profile card on the panel computer.

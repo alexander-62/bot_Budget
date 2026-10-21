@@ -11,6 +11,7 @@ from threading import Event
 import subprocess
 import sys
 import webbrowser
+from tkinter import filedialog
 
 from config import WEBAPP_HOST, WEBAPP_PORT
 import customtkinter as ctk
@@ -19,7 +20,8 @@ from PIL import Image, ImageTk
 from services.desktop_status import DesktopStatus, collect_status, format_uptime, read_int
 from services.process_control import ProcessLock, is_process_running
 from services.windows_autostart import WindowsAutostart
-from services.bot_profiles import BotProfile, list_profiles, get_profile_token, save_profile, update_profile
+from services.bot_profiles import BotProfile, list_profiles, get_profile_token, save_profile, update_profile, set_profile_image
+from services.profile_images import import_profile_image, load_profile_image
 from services.profile_validation import ValidationResult, validate_profile, normalize_spreadsheet_id
 from version import __version__
 
@@ -77,6 +79,12 @@ def save_validated_profile(candidate, original, token, cancelled):
         start_lock.release()
 
 
+def save_profile_picture(profile_id, path, base_dir=None):
+    base_dir = BASE_DIR if base_dir is None else base_dir
+    image_file = import_profile_image(Path(path), base_dir) if path else ""
+    return set_profile_image(profile_id, image_file, base_dir=base_dir)
+
+
 class BudgetPanel(ctk.CTk):
     def __init__(self, *, minimized: bool = False, start_bot: bool = False):
         ctk.set_appearance_mode("dark")
@@ -111,6 +119,7 @@ class BudgetPanel(ctk.CTk):
         self._generation = 0
         self._profile_statuses = {}
         self._editor = None
+        self._picture_busy = False
         self._autostart = WindowsAutostart(BASE_DIR, profiles_mode=True)
         self._build_ui()
         self._set_icon()
@@ -168,18 +177,22 @@ class BudgetPanel(ctk.CTk):
         self._label(stats, "   /   ", 12, BORDER).pack(side="left")
         self.uptime_label = self._label(stats, "В работе  —", 12, MUTED)
         self.uptime_label.pack(side="left")
-        logo_card = ctk.CTkFrame(hero, width=158, height=158, fg_color="#FFFFFF", corner_radius=20)
+        logo_card = ctk.CTkFrame(hero, width=172, height=194, fg_color="#FFFFFF", corner_radius=20)
         logo_card.grid(row=0, column=1, rowspan=4, padx=(18, 24), pady=24)
         logo_card.grid_propagate(False)
         logo_card.grid_rowconfigure(0, weight=1)
         logo_card.grid_columnconfigure(0, weight=1)
-        logo_path = BASE_DIR / "logo.png"
-        try:
-            with Image.open(logo_path) as source:
-                self.logo_image = ctk.CTkImage(light_image=source.copy(), dark_image=source.copy(), size=(146, 146))
-            ctk.CTkLabel(logo_card, text="", image=self.logo_image).grid(row=0, column=0)
-        except OSError:
-            self._label(logo_card, "B", 70, "#9A5868", bold=True).grid(row=0, column=0)
+        self.logo_label = self._label(logo_card, "", 60, "#9A5868", bold=True)
+        self.logo_label.grid(row=0, column=0, pady=(6, 0))
+        picture_controls = ctk.CTkFrame(logo_card, fg_color="transparent")
+        picture_controls.grid(row=1, column=0, padx=6, pady=6)
+        self.picture_button = ctk.CTkButton(picture_controls, text="Картинка", width=76, height=26,
+                                          fg_color=CARD, command=self._choose_profile_picture)
+        self.picture_button.pack(side="left", padx=(0, 3))
+        self.picture_reset_button = ctk.CTkButton(picture_controls, text="Сбросить", width=76, height=26,
+                                                fg_color=CARD, command=self._clear_profile_picture)
+        self.picture_reset_button.pack(side="left")
+        self._render_profile_image()
 
         self._label(body, "Подключения", 16, bold=True).grid(row=1, column=0, sticky="w", pady=(20, 10))
         network = ctk.CTkFrame(body, fg_color="transparent")
@@ -262,11 +275,70 @@ class BudgetPanel(ctk.CTk):
 
     def _set_icon(self):
         try:
-            with Image.open(BASE_DIR / "logo.png") as source:
-                self._window_icon = ImageTk.PhotoImage(source.resize((64, 64)))
+            source = load_profile_image(self.selected_profile, BASE_DIR, size=(64, 64))
+            if source is None:
+                source = Image.new("RGBA", (64, 64), (17, 19, 25, 255))
+            try:
+                self._window_icon = ImageTk.PhotoImage(source)
+            finally:
+                source.close()
             self.iconphoto(True, self._window_icon)
         except (OSError, RuntimeError):
             pass
+
+    def _render_profile_image(self):
+        source = load_profile_image(self.selected_profile, BASE_DIR)
+        initial = "" if source is not None else (self.selected_profile.name.strip()[:1].upper() or "B")
+        if source is None:
+            source = Image.new("RGBA", (146, 146), (0, 0, 0, 0))
+        try:
+            self.logo_image = ctk.CTkImage(light_image=source.copy(), dark_image=source.copy(), size=(146, 146))
+        finally:
+            source.close()
+        self.logo_label.configure(image=self.logo_image, text=initial)
+
+    def _picture_change_allowed(self):
+        if self._picture_busy or getattr(self, "_saving_profile", False):
+            self.feedback.configure(text="Дождитесь завершения сохранения.", text_color=AMBER)
+            return False
+        if self._editor is not None and self._editor.winfo_exists():
+            self.feedback.configure(text="Закройте настройки перед изменением картинки.", text_color=AMBER)
+            return False
+        return not self._closed
+
+    def _choose_profile_picture(self):
+        if not self._picture_change_allowed():
+            return
+        profile_id = self.selected_profile.id
+        path = filedialog.askopenfilename(parent=self, title="Картинка выбранного бота",
+                                         filetypes=[("Изображения", "*.png *.jpg *.jpeg *.webp *.bmp")])
+        if path:
+            self._save_picture(path, profile_id=profile_id)
+
+    def _clear_profile_picture(self):
+        if self._picture_change_allowed():
+            self._save_picture(None)
+
+    def _save_picture(self, path, *, profile_id=None):
+        self._picture_busy = True
+        self.picture_button.configure(state="disabled")
+        self.picture_reset_button.configure(state="disabled")
+        self.feedback.configure(text="Сохраняем картинку…", text_color=MUTED)
+        self._submit("picture", save_profile_picture, profile_id or self.selected_profile.id, path)
+
+    def _finish_picture_save(self, profile, error):
+        self._picture_busy = False
+        self.picture_button.configure(state="normal")
+        self.picture_reset_button.configure(state="normal")
+        if error or profile is None:
+            self.feedback.configure(text="Не удалось сохранить картинку. Выберите PNG, JPEG, WebP или BMP до 10 МБ.", text_color=RED)
+            return
+        self.profiles = list_profiles(BASE_DIR)
+        if profile.id == self.selected_profile.id:
+            self.selected_profile = next(p for p in self.profiles if p.id == profile.id)
+            self._render_profile_image()
+            self._set_icon()
+        self.feedback.configure(text=f"Картинка бота «{profile.name}» сохранена.", text_color=GREEN)
 
     def _submit(self, kind, function, *args):
         def work():
@@ -300,6 +372,9 @@ class BudgetPanel(ctk.CTk):
                 kind, generation = kind
                 if generation != self._generation:
                     continue
+            if kind == "picture":
+                self._finish_picture_save(result, error)
+                continue
             if kind == "profile-save":
                 self._finish_profile_save(result, error)
                 continue
@@ -422,6 +497,9 @@ class BudgetPanel(ctk.CTk):
             return
         self._generation += 1
         self.selected_profile = profile
+        self.profile_menu.set(self._profile_label(profile))
+        self._render_profile_image()
+        self._set_icon()
         self._last_status = None
         self._refresh_pending = self._busy = self._refresh_again = self._startup_requested = False
         self.profile_autostart_var.set(profile.autostart)
@@ -434,6 +512,10 @@ class BudgetPanel(ctk.CTk):
         self.refresh()
 
     def _toggle_profile_autostart(self):
+        if self._picture_busy:
+            self.profile_autostart_var.set(self.selected_profile.autostart)
+            self.feedback.configure(text="Дождитесь сохранения картинки.", text_color=AMBER)
+            return
         enabled = self.profile_autostart_var.get()
         try:
             profile = update_profile(replace(self.selected_profile, autostart=enabled), base_dir=BASE_DIR)
@@ -463,6 +545,9 @@ class BudgetPanel(ctk.CTk):
         self._show_profile_editor(self.selected_profile)
 
     def _show_profile_editor(self, profile):
+        if self._picture_busy:
+            self.feedback.configure(text="Дождитесь сохранения картинки.", text_color=AMBER)
+            return
         if getattr(self, "_saving_profile", False):
             self.feedback.configure(text="Дождитесь окончания текущей проверки профиля.", text_color=AMBER)
             return

@@ -1,5 +1,6 @@
 """Non-secret budget profile registry; separate processes own runtime state."""
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
+from contextlib import contextmanager
 import json
 import os
 from pathlib import Path
@@ -25,12 +26,15 @@ class BotProfile:
     credentials_file: str = ""
     legacy: bool = False
     track_money_source: bool = False
+    image_file: str = ""
 
     def runtime_dir(self, base_dir: Path = BASE_DIR) -> Path:
         return Path(base_dir) if self.legacy else Path(base_dir) / ".runtime" / self.id
 
 
 def _validate(profile: BotProfile) -> None:
+    if not isinstance(profile.image_file, str):
+        raise ValueError("image_file must be a string.")
     if type(profile.track_money_source) is not bool:
         raise ValueError("track_money_source must be a boolean.")
     if not re.fullmatch(r"[a-z][a-z0-9_-]{0,47}", profile.id):
@@ -81,7 +85,8 @@ def get_profile_token(profile: BotProfile, base_dir: Path = BASE_DIR) -> str:
     return load_token(profile.id, Path(base_dir))
 
 
-def _save(profile: BotProfile, token: str | None, base_dir: Path, *, editing: bool) -> BotProfile:
+@contextmanager
+def _registry_lock(base_dir: Path):
     base_dir.mkdir(parents=True, exist_ok=True)
     lock = ProcessLock(base_dir / ".profiles.lock")
     deadline = time.monotonic() + 5
@@ -90,9 +95,14 @@ def _save(profile: BotProfile, token: str | None, base_dir: Path, *, editing: bo
             raise ValueError("Реестр профилей занят. Повторите сохранение.")
         time.sleep(0.02)
     try:
-        return _save_locked(profile, token, base_dir, editing=editing)
+        yield
     finally:
         lock.release()
+
+
+def _save(profile: BotProfile, token: str | None, base_dir: Path, *, editing: bool) -> BotProfile:
+    with _registry_lock(base_dir):
+        return _save_locked(profile, token, base_dir, editing=editing)
 
 
 def _save_locked(profile: BotProfile, token: str | None, base_dir: Path, *, editing: bool) -> BotProfile:
@@ -165,3 +175,31 @@ def save_profile(profile: BotProfile, *, token: str | None = None, base_dir: Pat
 
 def update_profile(profile: BotProfile, *, token: str | None = None, base_dir: Path = BASE_DIR) -> BotProfile:
     return _save(profile, token, Path(base_dir), editing=True)
+
+
+def set_profile_image(profile_id: str, image_file: str, *, base_dir: Path = BASE_DIR) -> BotProfile:
+    """Patch current metadata without loading tokens or replacing stale settings."""
+    from services.profile_images import managed_image_path
+    base_dir = Path(base_dir)
+    if not isinstance(image_file, str):
+        raise ValueError("Укажите корректную картинку профиля.")
+    if image_file:
+        path = managed_image_path(image_file, base_dir)
+        if path is None or not path.is_file():
+            raise ValueError("Картинка профиля не найдена. Выберите файл заново.")
+    with _registry_lock(base_dir):
+        profiles = list_profiles(base_dir)
+        current = next((profile for profile in profiles if profile.id == profile_id), None)
+        if current is None:
+            raise ValueError("Профиль не найден.")
+        updated = replace(current, image_file=image_file)
+        _validate(updated)
+        profiles = [updated if profile.id == profile_id else profile for profile in profiles]
+        fd, filename = tempfile.mkstemp(dir=base_dir, prefix=".profiles-", suffix=".tmp")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as stream:
+                json.dump({"version": 1, "profiles": [asdict(profile) for profile in profiles]}, stream, ensure_ascii=False, indent=2)
+            os.replace(filename, base_dir / "profiles.json")
+        finally:
+            Path(filename).unlink(missing_ok=True)
+        return updated

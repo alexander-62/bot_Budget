@@ -10,7 +10,7 @@
 | 11. Multi-Bot Panel | Добавление, проверка и управление в панели | UI-01, UI-02, UI-03, UI-04 | Complete |
 | 12. Platform Verification | Изоляция, регрессии, документация | TEST-05, DOC-01 | Complete |
 | 13. Optional Money Sources | Включаемый источник денег в записи расходов | SRC-01, SRC-02, SRC-03, SRC-04, SRC-05, SRC-06 | Complete |
-| 14. Per-Bot Profile Pictures | Своя локальная картинка каждого бота в панели | IMG-01, IMG-02, IMG-03, IMG-04 | In progress |
+| 14. Per-Bot Profile Pictures | Своя локальная картинка каждого бота в панели | IMG-01, IMG-02, IMG-03, IMG-04 | Complete |
 
 ## Phase 9: Bot Profiles
 
@@ -68,7 +68,7 @@
 
 ## Next step
 
-Implementation phases 9-13 complete, version 1.6.1. Deliver commits to the bot computer, prepare the optional source Sheet and expense column I, then enable the checkbox for business. Personal stays disabled. Live onboarding and first real expense remain operator checks.
+Implementation phases 9-14 complete, version 1.6.2. Deliver updates to the panel computer. Choose local pictures per profile; business source setup and live bot onboarding remain operator checks.
 
 ### Phase 13: Optional money sources
 
@@ -103,4 +103,4 @@ Plans:
 
 Plans:
 
-- [ ] 14-01-PLAN.md — Profile images, panel select/reset and verification.
+- [x] 14-01-PLAN.md — Profile images, panel select/reset and verification.

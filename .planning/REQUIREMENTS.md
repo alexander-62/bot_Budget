@@ -48,10 +48,10 @@ All SRC requirements map to phase 13. Prior 15 requirements remain complete.
 
 ## Phase 14 Requirements — Panel pictures
 
-- [ ] **IMG-01**: Each profile has a backward-compatible local image setting; old profiles use the existing default logo/initial.
-- [ ] **IMG-02**: Operator chooses or clears a picture for any selected bot, including running and legacy personal, without tokens/network or other settings changes.
-- [ ] **IMG-03**: Imported assets are bounded valid managed copies; card/icon selection and late worker completion cannot use another profile's picture or overwrite newer metadata.
-- [ ] **IMG-04**: Generated-image and real-widget regressions, full suite, visual QA and local-asset documentation pass; Telegram avatars remain outside scope.
+- [x] **IMG-01**: Each profile has a backward-compatible local image setting; old profiles use the existing default logo/initial.
+- [x] **IMG-02**: Operator chooses or clears a picture for any selected bot, including running and legacy personal, without tokens/network or other settings changes.
+- [x] **IMG-03**: Imported assets are bounded valid managed copies; card/icon selection and late worker completion cannot use another profile's picture or overwrite newer metadata.
+- [x] **IMG-04**: Generated-image and real-widget regressions, full suite, visual QA and local-asset documentation pass; Telegram avatars remain outside scope.
 
 All IMG requirements map to phase 14. User explicitly confirmed pictures only in the panel.
 
@@ -88,7 +88,13 @@ SaaS/биллинг, гарантия бесконечной одновреме�
 | SRC-04 | 13 | Complete |
 | SRC-05 | 13 | Complete |
 | SRC-06 | 13 | Complete |
+| IMG-01 | 14 | Complete |
+| IMG-02 | 14 | Complete |
+| IMG-03 | 14 | Complete |
+| IMG-04 | 14 | Complete |
 
-Coverage: 21 requirements, all mapped once. Previous: milestones/pre-v1.6.0-REQUIREMENTS.md.
+Coverage: 25 requirements, all mapped once. Previous: milestones/pre-v1.6.0-REQUIREMENTS.md.
 
 Verified 2026-10-21: implementation complete; 109 tests/25 modules pass; phase 13 optional sources verified. Live business onboarding remains operator action.
+
+Phase 14 verified 2026-10-21: 122 tests / 27 modules, then 18 affected UI regressions after final selector synchronization; panel pictures only.
