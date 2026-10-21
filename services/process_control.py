@@ -113,3 +113,50 @@ def is_lock_held(path: Path) -> bool:
         return True
     lock.release()
     return False
+
+
+def process_birth_identity(pid: int) -> str | None:
+    """Non-secret process creation identity, stable across PID reuse."""
+    if pid <= 0:
+        return None
+    if not IS_WINDOWS:
+        try:
+            # comm may contain spaces or parentheses; fields after its final )
+            # begin with state (field 3), with starttime at field 22.
+            fields = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8").rsplit(")", 1)[1].split()
+            return f"{pid}:{fields[19]}"
+        except (OSError, IndexError, ValueError):
+            return None
+    import ctypes
+    from ctypes import wintypes
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.OpenProcess.argtypes = (wintypes.DWORD, wintypes.BOOL, wintypes.DWORD)
+    kernel32.OpenProcess.restype = wintypes.HANDLE
+    kernel32.CloseHandle.argtypes = (wintypes.HANDLE,)
+    kernel32.GetProcessTimes.argtypes = (wintypes.HANDLE,) + (ctypes.POINTER(wintypes.FILETIME),) * 4
+    kernel32.GetProcessTimes.restype = wintypes.BOOL
+    handle = kernel32.OpenProcess(0x1000, False, pid)  # QUERY_LIMITED_INFORMATION
+    if not handle:
+        return None
+    try:
+        created, exited, kernel, user = (wintypes.FILETIME() for _ in range(4))
+        if not kernel32.GetProcessTimes(handle, ctypes.byref(created), ctypes.byref(exited), ctypes.byref(kernel), ctypes.byref(user)):
+            return None
+        return f"{pid}:{created.dwHighDateTime}:{created.dwLowDateTime}"
+    finally:
+        kernel32.CloseHandle(handle)
+
+
+def recorded_process_identity(runtime_dir: Path, pid: int, profile_id: str) -> bool | None:
+    """True/False for proven ownership/mismatch; None without usable evidence."""
+    import json
+    try:
+        record = json.loads((runtime_dir / ".bot.identity.json").read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return None
+    except (OSError, ValueError):
+        return False
+    if not isinstance(record, dict) or record.get("pid") != pid or record.get("profile_id") != profile_id or not record.get("birth"):
+        return False
+    current = process_birth_identity(pid)
+    return current == record["birth"] if current is not None else None

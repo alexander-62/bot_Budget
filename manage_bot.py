@@ -1,18 +1,32 @@
 import argparse
+import json
 import os
 import signal
 import socket
 import subprocess
 import sys
 import re
+import time
 from pathlib import Path
 from urllib.parse import urlparse, urlunparse
 
-from config import WEBAPP_HOST, WEBAPP_PORT, WEBAPP_URL
+# Management always reads shared operational settings from the personal config.
+# Selected worker credentials are loaded only by the worker, after CLI selection.
+_inherited_profile = os.environ.pop("BOT_BUDGET_PROFILE", None)
+try:
+    from config import WEBAPP_HOST, WEBAPP_PORT, WEBAPP_URL
+finally:
+    if _inherited_profile is not None:
+        os.environ["BOT_BUDGET_PROFILE"] = _inherited_profile
+
+# Direct manager invocations may inherit a profile with an ephemeral-port default.
+WEBAPP_PORT = WEBAPP_PORT or 8080
 from services.process_control import (
     AlreadyRunningError,
     ProcessLock,
     is_lock_held,
+    process_birth_identity,
+    recorded_process_identity,
     is_process_running as _is_running,
 )
 
@@ -30,6 +44,74 @@ DESKTOP_LOCK_FILE = BASE_DIR / ".desktop.lock"
 DESKTOP_START_LOCK_FILE = BASE_DIR / ".desktop-start.lock"
 DESKTOP_PID_FILE = BASE_DIR / ".desktop.pid"
 DESKTOP_SHOW_FILE = BASE_DIR / ".desktop.show"
+PROFILE_ID = "personal"
+EXIT_CODE = 0
+
+
+def configure_profile(profile_id: str = "personal") -> None:
+    """Select worker paths; shared panel/tray paths always remain global."""
+    from services.bot_profiles import get_profile
+    global PROFILE_ID, PID_FILE, PORT_FILE, LOG_FILE, BOT_LOCK_FILE, START_LOCK_FILE
+    profile = get_profile(profile_id, base_dir=BASE_DIR)
+    runtime_dir = profile.runtime_dir(BASE_DIR)
+    runtime_dir.mkdir(parents=True, exist_ok=True)
+    PROFILE_ID = profile.id
+    PID_FILE = runtime_dir / ".bot.pid"
+    PORT_FILE = runtime_dir / ".bot.port"
+    LOG_FILE = runtime_dir / "bot.log"
+    BOT_LOCK_FILE = runtime_dir / ".bot.lock"
+    START_LOCK_FILE = runtime_dir / ".bot-start.lock"
+
+
+def _shared_runtime_env() -> dict[str, str]:
+    env = os.environ.copy()
+    env.pop("BOT_BUDGET_PROFILE", None)
+    return env
+
+
+def start_autostart() -> None:
+    from services.bot_profiles import list_profiles
+    start_desktop(minimized=True)
+    for profile in list_profiles(base_dir=BASE_DIR):
+        if profile.autostart:
+            configure_profile(profile.id)
+            start_bot()
+
+
+
+def _failure(message: str) -> None:
+    global EXIT_CODE
+    EXIT_CODE = 1
+    print(message)
+
+
+def _record_process_identity(pid: int) -> None:
+    identity = process_birth_identity(pid)
+    path = PID_FILE.with_name(".bot.identity.json")
+    if identity is not None:
+        path.write_text(json.dumps({"pid": pid, "profile_id": PROFILE_ID, "birth": identity}), encoding="utf-8")
+    else:
+        path.unlink(missing_ok=True)
+
+
+def _worker_identity(pid: int) -> bool | None:
+    # An existing snapshot takes precedence over any reused HTTP endpoint.
+    identity_path = PID_FILE.with_name(".bot.identity.json")
+    if identity_path.exists():
+        return recorded_process_identity(PID_FILE.parent, pid, PROFILE_ID)
+    from services.desktop_status import read_health
+    port = _read_port()
+    health = read_health(WEBAPP_HOST, port) if port else {}
+    if health.get("pid") == pid:
+        if health.get("profile_id") == PROFILE_ID:
+            return True
+        if health.get("profile_id") is None and PROFILE_ID == "personal":
+            from services.bot_profiles import get_profile
+            if get_profile(PROFILE_ID, base_dir=BASE_DIR).legacy:
+                return True
+    if isinstance(health.get("pid"), int) and isinstance(health.get("profile_id"), str):
+        return False
+    return None
 
 
 def _read_pid() -> int | None:
@@ -51,6 +133,7 @@ def _read_tray_pid() -> int | None:
 
 
 def _write_pid(pid: int) -> None:
+    _record_process_identity(pid)
     PID_FILE.write_text(str(pid), encoding="utf-8")
 
 
@@ -72,6 +155,7 @@ def _write_port(port: int) -> None:
 
 
 def _clear_pid() -> None:
+    PID_FILE.with_name(".bot.identity.json").unlink(missing_ok=True)
     if PID_FILE.exists():
         PID_FILE.unlink()
 
@@ -104,9 +188,25 @@ def _is_port_free(port: int) -> bool:
         return True
 
 
+def _profile_port_claimed(port: int) -> bool:
+    from services.bot_profiles import list_profiles
+    for profile in list_profiles(base_dir=BASE_DIR):
+        if profile.id == PROFILE_ID:
+            continue
+        runtime = profile.runtime_dir(BASE_DIR)
+        try:
+            claimed_port = int((runtime / ".bot.port").read_text(encoding="utf-8").strip())
+            pid = int((runtime / ".bot.pid").read_text(encoding="utf-8").strip())
+        except (OSError, ValueError):
+            continue
+        if claimed_port == port and _is_running(pid):
+            return True
+    return False
+
+
 def _select_webapp_port(start_port: int) -> int:
     for port in range(start_port, 65536):
-        if _is_port_free(port):
+        if _is_port_free(port) and not _profile_port_claimed(port):
             return port
     raise RuntimeError(f"No free port found at or above {start_port}.")
 
@@ -150,6 +250,7 @@ def _build_runtime_webapp_url(port: int) -> str:
 
 def _build_runtime_env(port: int) -> dict[str, str]:
     env = os.environ.copy()
+    env["BOT_BUDGET_PROFILE"] = PROFILE_ID
     env["BOT_BUDGET_WEBAPP_HOST"] = WEBAPP_HOST
     env["BOT_BUDGET_WEBAPP_PORT"] = str(port)
     env["BOT_BUDGET_WEBAPP_URL"] = _build_runtime_webapp_url(port)
@@ -200,29 +301,62 @@ def _format_port_busy_message() -> str:
     return f"Web App port {WEBAPP_HOST}:{WEBAPP_PORT} is already in use by PID {owner_pid}."
 
 
+def _start_with_port_reservation(background: bool) -> None:
+    # Different profile managers have different start locks, but allocate from
+    # the same host port range. Hold this lock through publishing PID and port.
+    lock = ProcessLock(BASE_DIR / ".ports-start.lock")
+    deadline = time.monotonic() + 10
+    while not lock.acquire():
+        if time.monotonic() >= deadline:
+            _failure("Another profile is allocating its Web App port. Retry start shortly.")
+            return
+        time.sleep(0.05)
+    try:
+        foreground = _start_bot(background)
+    finally:
+        lock.release()
+    if foreground is not None:
+        try:
+            returncode = foreground.wait()
+            if returncode:
+                _failure(f"Bot exited with status {returncode}.")
+        finally:
+            if _read_pid() == foreground.pid:
+                _clear_pid()
+                _clear_port()
+
+
 def start_bot(background: bool = True) -> None:
     try:
         with ProcessLock(START_LOCK_FILE):
-            _start_bot(background)
+            _start_with_port_reservation(background)
     except AlreadyRunningError:
-        print("Bot start is already in progress.")
+        _failure("Bot start is already in progress.")
 
 
-def _start_bot(background: bool = True) -> None:
+def _start_bot(background: bool = True) -> subprocess.Popen | None:
     pid = _read_pid()
     if pid and _is_running(pid):
-        print(f"Bot is already running (PID {pid}).")
-        return
+        ownership = _worker_identity(pid)
+        if ownership is True:
+            print(f"Bot is already running (PID {pid}).")
+            return
+        if ownership is None:
+            _failure(f"PID {pid} is active but ownership by profile {PROFILE_ID} is unknown. Check the profile log before retrying.")
+            return
+        print(f"Ignoring stale PID {pid}; it belongs to another process.")
+        _clear_pid()
+        _clear_port()
     if is_lock_held(BOT_LOCK_FILE):
         print("Bot is already running (runtime lock is held).")
         return
 
     runtime_port = WEBAPP_PORT
-    if _is_webapp_port_busy():
+    if _is_webapp_port_busy() or _profile_port_claimed(runtime_port):
         try:
             runtime_port = _select_webapp_port(WEBAPP_PORT + 1)
         except RuntimeError as exc:
-            print(str(exc))
+            _failure(str(exc))
             return
         print(
             f"{_format_port_busy_message()} Switching Web App to next free port {runtime_port}."
@@ -246,12 +380,14 @@ def _start_bot(background: bool = True) -> None:
         return
 
     print("Starting in foreground. Stop with Ctrl+C")
-    subprocess.run(
+    process = subprocess.Popen(
         [sys.executable, "bot.py"],
         cwd=str(BASE_DIR),
-        check=False,
         env=_build_runtime_env(runtime_port),
     )
+    _write_pid(process.pid)
+    _write_port(runtime_port)
+    return process
 
 
 def stop_bot() -> None:
@@ -265,20 +401,30 @@ def stop_bot() -> None:
         _clear_pid()
         return
 
+    if _worker_identity(pid) is not True:
+        _failure(f"Cannot verify PID {pid} belongs to profile {PROFILE_ID}; process was not stopped. "
+              "Check the profile log and retry when its health endpoint is available.")
+        return
+
     try:
         if os.name == "nt":
-            subprocess.run(
+            result = subprocess.run(
                 ["taskkill", "/PID", str(pid), "/T", "/F"],
                 check=False,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
             )
+            if result.returncode != 0:
+                _failure(f"Failed to stop PID {pid}; process metadata was preserved.")
+                return
         else:
             os.kill(pid, signal.SIGTERM)
         print(f"Bot stopped (PID {pid}).")
-    finally:
-        _clear_pid()
-        _clear_port()
+    except OSError as exc:
+        _failure(f"Failed to stop PID {pid}: {type(exc).__name__}.")
+        return
+    _clear_pid()
+    _clear_port()
 
 
 def status_bot() -> None:
@@ -294,7 +440,13 @@ def status_bot() -> None:
         return
 
     if _is_running(pid):
-        print(f"Bot is running in background (PID {pid}, Web App port {runtime_port}).")
+        ownership = _worker_identity(pid)
+        if ownership is True:
+            print(f"Bot is running in background (PID {pid}, Web App port {runtime_port}).")
+        elif ownership is False:
+            _failure(f"Stored PID {pid} belongs to another process; profile {PROFILE_ID} is not verified running.")
+        else:
+            _failure(f"PID {pid} is active but ownership by profile {PROFILE_ID} is unknown.")
     else:
         if not _is_port_free(runtime_port):
             print(
@@ -327,11 +479,12 @@ def _start_tray(silent: bool = False) -> None:
     if tray_pid:
         _clear_tray_pid()
 
-    with LOG_FILE.open("a", encoding="utf-8") as log_file:
+    with (BASE_DIR / "bot.log").open("a", encoding="utf-8") as log_file:
         kwargs = {
             "stdout": log_file,
             "stderr": log_file,
             "cwd": str(BASE_DIR),
+            "env": _shared_runtime_env(),
         }
         if os.name == "nt":
             kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP  # type: ignore[attr-defined]
@@ -370,7 +523,8 @@ def stop_tray() -> None:
 
 def restart_bot() -> None:
     stop_bot()
-    start_bot(background=True)
+    if EXIT_CODE == 0:
+        start_bot(background=True)
 
 
 def start_desktop(minimized: bool = False, start_bot_on_open: bool = False) -> None:
@@ -393,8 +547,8 @@ def start_desktop(minimized: bool = False, start_bot_on_open: bool = False) -> N
             if start_bot_on_open:
                 command.append("--start-bot")
             kwargs = {"creationflags": subprocess.CREATE_NO_WINDOW} if os.name == "nt" else {}
-            with LOG_FILE.open("a", encoding="utf-8") as log_file:
-                process = subprocess.Popen(command, cwd=BASE_DIR, stdout=log_file, stderr=log_file, **kwargs)
+            with (BASE_DIR / "bot.log").open("a", encoding="utf-8") as log_file:
+                process = subprocess.Popen(command, cwd=BASE_DIR, stdout=log_file, stderr=log_file, env=_shared_runtime_env(), **kwargs)
             DESKTOP_PID_FILE.write_text(str(process.pid), encoding="utf-8")
             print(f"Desktop panel started (PID {process.pid}).")
     except AlreadyRunningError:
@@ -404,7 +558,9 @@ def start_desktop(minimized: bool = False, start_bot_on_open: bool = False) -> N
         print("Desktop panel start is already in progress.")
 
 
-def main() -> None:
+def main() -> int:
+    global EXIT_CODE
+    EXIT_CODE = 0
     parser = argparse.ArgumentParser(description="Telegram bot process manager")
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -424,30 +580,54 @@ def main() -> None:
     desktop_parser.add_argument("--minimized", action="store_true")
     desktop_parser.add_argument("--start-bot", action="store_true")
 
+    sub.add_parser("start-autostart", help="Start panel and enabled profiles")
+    for name in ("start", "stop", "restart", "status"):
+        command_parser = sub.choices[name]
+        selection = command_parser.add_mutually_exclusive_group()
+        selection.add_argument("--profile", default="personal")
+        selection.add_argument("--all", action="store_true")
+
     args = parser.parse_args()
+    if args.command == "start-autostart":
+        start_autostart()
+        return EXIT_CODE
+    if args.command in {"start", "stop", "restart", "status"}:
+        if args.all:
+            if args.command == "start" and args.foreground:
+                parser.error("--all cannot be combined with --foreground")
+            from services.bot_profiles import list_profiles
+            for profile in list_profiles(base_dir=BASE_DIR):
+                configure_profile(profile.id)
+                print(f"[{profile.id}]")
+                if args.command == "start":
+                    start_bot(background=True)
+                else:
+                    {"stop": stop_bot, "restart": restart_bot, "status": status_bot}[args.command]()
+            return EXIT_CODE
+        configure_profile(args.profile)
 
     if args.command == "ui":
         start_desktop(minimized=args.minimized, start_bot_on_open=args.start_bot)
-        return
+        return EXIT_CODE
     if args.command == "start":
         start_bot(background=not args.foreground)
-        return
+        return EXIT_CODE
     if args.command == "stop":
         stop_bot()
-        return
+        return EXIT_CODE
     if args.command == "restart":
         restart_bot()
-        return
+        return EXIT_CODE
     if args.command == "status":
         status_bot()
-        return
+        return EXIT_CODE
     if args.command == "tray":
         start_tray()
-        return
+        return EXIT_CODE
     if args.command == "stop-tray":
         stop_tray()
-        return
+        return EXIT_CODE
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

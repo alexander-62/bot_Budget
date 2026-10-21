@@ -10,7 +10,8 @@ RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
 
 
 class WindowsAutostart:
-    def __init__(self, base_dir: Path, executable: str | None = None):
+    def __init__(self, base_dir: Path, executable: str | None = None, *, profiles_mode: bool = False):
+        self.profiles_mode = profiles_mode
         self.base_dir = base_dir.resolve()
         executable_path = Path(executable or sys.executable)
         pythonw = executable_path.with_name("pythonw.exe")
@@ -26,7 +27,7 @@ class WindowsAutostart:
     def command(self) -> str:
         return subprocess.list2cmdline([
             self.executable, str(self.base_dir / "manage_bot.py"),
-            "ui", "--minimized", "--start-bot",
+            *(["start-autostart"] if self.profiles_mode else ["ui", "--minimized", "--start-bot"]),
         ])
 
     def is_enabled(self) -> bool:

@@ -9,7 +9,7 @@ import time
 from urllib.error import HTTPError
 import urllib.request
 
-from services.process_control import is_process_running
+from services.process_control import is_process_running, recorded_process_identity
 
 
 @dataclass(frozen=True)
@@ -27,6 +27,7 @@ class DesktopStatus:
     telegram: ConnectionStatus
     google: ConnectionStatus
     checked_at: datetime
+    profile_id: str = "personal"
 
 
 def read_int(path: Path) -> int | None:
@@ -66,7 +67,11 @@ def read_health(host: str, port: int, timeout: float = 1.5) -> dict:
         return {}
 
 
-def collect_status(base_dir: Path, host: str, default_port: int, installed_version: str) -> DesktopStatus:
+def collect_status(base_dir: Path, host: str, default_port: int, installed_version: str, profile_id: str = "personal") -> DesktopStatus:
+    from services.bot_profiles import get_profile
+    profile = get_profile(profile_id, base_dir=base_dir)
+    base_dir = profile.runtime_dir(base_dir)
+    stored_pid = read_int(base_dir / ".bot.pid")
     port = read_int(base_dir / ".bot.port") or default_port
     if not 1 <= port <= 65535:
         port = default_port
@@ -77,9 +82,20 @@ def collect_status(base_dir: Path, host: str, default_port: int, installed_versi
         health = local.result()
         telegram_status, google_status = telegram.result(), google.result()
 
+    # A port can be reused by another profile or application. Never borrow its
+    # PID/version/uptime, even when the selected worker's PID file is absent.
+    identity = health.get("profile_id")
+    foreign_health = bool(identity is not None and (identity != profile_id or (stored_pid and health.get("pid") != stored_pid)))
+    if identity != profile_id and not (identity is None and profile.legacy):
+        health = {}
     health_pid = health.get("pid")
-    pid = health_pid if isinstance(health_pid, int) and health_pid > 0 else read_int(base_dir / ".bot.pid")
-    alive = bool(pid and is_process_running(pid))
+    if identity is not None and stored_pid and health_pid != stored_pid:
+        health = {}
+        health_pid = None
+    pid = health_pid if isinstance(health_pid, int) and health_pid > 0 else stored_pid
+    ownership = recorded_process_identity(base_dir, pid, profile_id) if pid else None
+    alive = bool(pid and is_process_running(pid) and ownership is not False
+                 and not (foreign_health and ownership is not True))
     if alive and health and health.get("polling_ready", True):
         state = "running" if telegram_status.reachable and google_status.reachable else "offline"
     elif alive:
@@ -93,7 +109,7 @@ def collect_status(base_dir: Path, host: str, default_port: int, installed_versi
         state=state, pid=pid if alive else None,
         version=str(health.get("version") or installed_version),
         uptime_seconds=int(uptime) if uptime is not None else None,
-        telegram=telegram_status, google=google_status, checked_at=datetime.now(),
+        telegram=telegram_status, google=google_status, checked_at=datetime.now(), profile_id=profile_id,
     )
 
 

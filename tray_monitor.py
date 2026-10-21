@@ -14,7 +14,7 @@ from pathlib import Path
 from urllib.parse import urlparse, urlunparse
 
 from config import WEBAPP_HOST, WEBAPP_PORT, WEBAPP_URL
-from services.process_control import ProcessLock, is_process_running as _is_running
+from services.process_control import ProcessLock, is_process_running as _is_running, recorded_process_identity
 from version import __version__
 
 try:
@@ -79,7 +79,10 @@ def _is_health_ok(port: int) -> bool:
     try:
         with urllib.request.urlopen(url, timeout=1.0) as response:
             payload = json.loads(response.read(16384))
-            return response.status == 200 and payload.get("ok") is True and payload.get("polling_ready", True)
+            return (response.status == 200 and payload.get("ok") is True
+                    and payload.get("profile_id", "personal") == "personal"
+                    and payload.get("pid") == _read_bot_pid()
+                    and payload.get("polling_ready", True))
     except Exception:
         return False
 
@@ -93,17 +96,31 @@ def _is_port_busy(port: int) -> bool:
 
 
 def get_bot_status() -> tuple[str, str]:
-    pid = _read_bot_pid()
-    port = _read_runtime_port()
-    health_ok = _is_health_ok(port)
+    from services.bot_profiles import list_profiles
+    from services.desktop_status import read_health
 
-    if pid and _is_running(pid) and health_ok:
-        return "running", f"Бот работает\nPID: {pid}\nWeb App: {WEBAPP_HOST}:{port}\nВерсия: {__version__}"
-    if pid and _is_running(pid):
-        return "starting", f"Процесс бота запущен, health check пока недоступен\nPID: {pid}\nWeb App: {WEBAPP_HOST}:{port}"
-    if _is_port_busy(port):
-        return "warning", f"PID бота не найден, но порт Web App занят\nWeb App: {WEBAPP_HOST}:{port}"
-    return "stopped", "Бот не запущен"
+    states = []
+    lines = []
+    for profile in list_profiles(base_dir=BASE_DIR):
+        runtime = profile.runtime_dir(BASE_DIR)
+        pid = _read_int(runtime / ".bot.pid")
+        port = _read_int(runtime / ".bot.port") or WEBAPP_PORT
+        ownership = recorded_process_identity(runtime, pid, profile.id) if pid else None
+        alive = bool(pid and _is_running(pid) and ownership is not False)
+        health = read_health(WEBAPP_HOST, port) if alive else {}
+        identity_matches = health.get("profile_id") == profile.id
+        if profile.legacy and health.get("profile_id") is None:
+            identity_matches = True
+        if health.get("profile_id") is not None and not identity_matches and ownership is not True:
+            alive = False
+        healthy = (identity_matches and health.get("pid") == pid
+                   and health.get("polling_ready", True) and health.get("ok") is True)
+        state = "running" if alive and healthy else "starting" if alive else "stopped"
+        states.append(state)
+        label = {"running": "????????", "starting": "???????????", "stopped": "??????????"}[state]
+        lines.append(f"{profile.name}: {label}")
+    state = "starting" if "starting" in states else "running" if "running" in states else "stopped"
+    return state, "\n".join(lines) or "??? ?? ???????"
 
 
 def _load_font(size: int):
@@ -152,9 +169,12 @@ def create_tray_image(status: str):
 
 
 def _run_manager(command: str) -> None:
+    env = os.environ.copy()
+    env.pop("BOT_BUDGET_PROFILE", None)
     subprocess.Popen(
         [sys.executable, "manage_bot.py", command],
         cwd=str(BASE_DIR),
+        env=env,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )
