@@ -10,6 +10,19 @@ The current improvement project keeps Google Sheets as the visible data store, b
 
 Users can record expenses in Telegram quickly and reliably, and the household gets a daily reminder with a shared category summary so missed expenses are caught the same evening.
 
+## Current Milestone: v1.6.0 Multiple Budget Bots
+
+**Goal:** Управлять несколькими независимыми Telegram-ботами бюджета из одной Windows-панели и подключить бизнес-профиль в рублях.
+
+**Target features:**
+- Реестр профилей без фиксированного программного лимита, общий код, отдельные процессы/таблицы/пользователи/категории.
+- Совместимость существующего личного бюджета EUR; бизнес-профиль RUB с общей видимостью для разрешённых пользователей.
+- Изолированные runtime-файлы, журналы, сводки и доступ; Windows-автозапуск отмеченных профилей.
+- Добавление и проверка следующего бота в панели без изменения исходного кода.
+- Категории и участники остаются в Google Sheets. Токены хранятся отдельно от реестра и Git.
+
+**Authorization:** Пользователь 2026-10-21 поручил оформить майлстоун и исполнить согласованную архитектуру. Экономичные модели разрешены. Текущие локальные секреты не читаются агентами и не мигрируются вручную.
+
 ## Requirements
 
 ### Validated
@@ -29,7 +42,10 @@ Users can record expenses in Telegram quickly and reliably, and the household ge
 - Runtime smoke check passes under installed dependencies.
 
 ### Active
-- None for current implementation slice. Phase 8 implementation complete; live rollout requires the `Users` sheet headers.
+- [ ] Profile registry, legacy compatibility, secret isolation and per-profile currencies/access (phase 9).
+- [ ] Independent lifecycle, health identity and selective Windows autostart (phase 10).
+- [ ] Profile selection, add/edit/connect validation and management in the desktop panel (phase 11).
+- [ ] Fake-based integration verification and business onboarding documentation (phase 12).
 
 ### Out of Scope
 

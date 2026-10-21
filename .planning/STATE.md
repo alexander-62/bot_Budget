@@ -1,3 +1,18 @@
+---
+gsd_state_version: 1.0
+milestone: v1.6.0
+milestone_name: Multiple Budget Bots
+status: planning
+last_updated: "2026-10-21T13:22:23.455Z"
+last_activity: 2026-10-21
+progress:
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
+---
+
 # Project State: Bot Budget
 
 **Initialized:** 2026-06-29
@@ -38,3 +53,10 @@ See: `.planning/PROJECT.md` (updated 2026-06-29)
 - 2026-06-29: Remote restart now writes a restart marker and the next bot start sends an explicit "Бот снова запущен" message before polling.
 - 2026-07-09: Started Phase 8 evening daily digest as a new milestone slice. Digest recipients are configured only in the `Users` sheet.
 - 2026-07-09: Completed Phase 8 implementation and tests. Live rollout requires `digest_enabled` and `last_digest_date` headers in `Users`.
+
+## Current Position
+
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-10-21 — Milestone v1.6.0 started
