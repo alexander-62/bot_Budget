@@ -84,6 +84,7 @@ WEBAPP_HOST = _get_config_value("WEBAPP_HOST", "127.0.0.1")
 WEBAPP_PORT = int(_get_config_value("WEBAPP_PORT", "8080"))
 WEBAPP_URL = _get_config_value("WEBAPP_URL", f"http://{WEBAPP_HOST}:{WEBAPP_PORT}/webapp")
 CURRENCY = PROFILE.currency
+TRACK_MONEY_SOURCE = PROFILE.track_money_source
 BOT_TIMEZONE = PROFILE.timezone
 PROFILE_RUNTIME_DIR = PROFILE.runtime_dir(BASE_DIR)
 if not PROFILE.legacy:

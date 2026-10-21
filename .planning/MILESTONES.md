@@ -9,3 +9,7 @@ Phases 1–8 delivered Sheets caching/read optimization, async boundaries, safe 
 User-approved scope: general profile support, independent budget bots, RUB business budget, existing EUR personal compatibility, a shared Windows panel with add/connect/manage and selective autostart. Phases 9–12 continue numbering. Live onboarding needs the business bot token, dedicated Sheet and user IDs supplied by the operator through the panel.
 
 Implementation phases 9?12 verified with 89 tests in 21 modules and zero publication findings. Actual business onboarding remains pending operator token/table.
+
+## Phase 13 follow-up - runtime v1.6.1, 2026-10-21
+
+Optional money sources implemented and verified: per-profile boolean, active own-sheet sources, column I persistence, safe entry/edit/recent views and desktop toggle. 109 tests/25 modules pass, publication findings 0. Remote rollout and real business configuration remain operator actions.

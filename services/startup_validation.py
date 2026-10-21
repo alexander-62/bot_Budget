@@ -9,6 +9,7 @@ from constants import (
     LIMITS_SHEET_NAME,
     SHOPPING_SHEET_NAME,
     USERS_SHEET_NAME,
+    MONEY_SOURCES_SHEET_NAME,
 )
 from services.google_sheets import find_worksheet_case_insensitive, get_spreadsheet, normalize_text
 
@@ -30,6 +31,10 @@ _WORKSHEET_RULES = (
     WorksheetRule(EXPENSES_SHEET_NAME, ("дата", "месяц", "пользователь", "категория", "подкатегория", "сумма")),
     WorksheetRule(SHOPPING_SHEET_NAME, tuple()),
 )
+
+
+def get_worksheet_rules(profile):
+    return _WORKSHEET_RULES + ((WorksheetRule(MONEY_SOURCES_SHEET_NAME, ("источник", "активно", "порядок")),) if profile.track_money_source else ())
 
 
 def validate_startup() -> None:
@@ -56,7 +61,7 @@ def _validate_config() -> None:
 
 def _validate_google_sheets_schema() -> None:
     spreadsheet = get_spreadsheet()
-    for rule in _WORKSHEET_RULES:
+    for rule in get_worksheet_rules(PROFILE):
         worksheet = find_worksheet_case_insensitive(spreadsheet, rule.name)
         if not rule.required_headers:
             continue
@@ -66,17 +71,23 @@ def _validate_google_sheets_schema() -> None:
             raise StartupValidationError(f"Worksheet '{rule.name}' is empty.")
 
         try:
-            validate_worksheet_header(rule, rows[0], legacy=PROFILE.legacy)
+            validate_worksheet_header(rule, rows[0], legacy=PROFILE.legacy, track_money_source=PROFILE.track_money_source)
+            if rule.name == MONEY_SOURCES_SHEET_NAME:
+                from services.money_sources import parse_money_sources
+                if not parse_money_sources(rows):
+                    raise ValueError("Лист «Источники»: добавьте хотя бы один активный источник.")
         except ValueError as error:
             raise StartupValidationError(str(error)) from None
 
 
-def validate_worksheet_header(rule: WorksheetRule, values, *, legacy: bool) -> None:
+def validate_worksheet_header(rule: WorksheetRule, values, *, legacy: bool, track_money_source: bool = False) -> None:
     """Position-based services require header order, not merely presence."""
     header = tuple(normalize_text(value) for value in values)
     expected = rule.required_headers
-    if rule.name == EXPENSES_SHEET_NAME and not legacy:
+    if rule.name == EXPENSES_SHEET_NAME and (not legacy or track_money_source):
         expected += ("комментарий", "expense_id")
+        if track_money_source:
+            expected += ("источник",)
     for index, required in enumerate(expected):
         if required not in header:
             raise ValueError(f"Worksheet '{rule.name}' is missing required header '{required}'.")

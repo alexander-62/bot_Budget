@@ -114,9 +114,10 @@ def build_saved_expense_actions_keyboard(action_id: str) -> InlineKeyboardMarkup
     )
 
 
-def build_saved_expense_edit_keyboard(action_id: str) -> InlineKeyboardMarkup:
+def build_saved_expense_edit_keyboard(action_id: str, *, include_source: bool = False) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
+            *([[InlineKeyboardButton(text="Изменить источник", callback_data=f"exp:saved:source:{action_id}")]] if include_source else []),
             [
                 InlineKeyboardButton(
                     text="Удалить",
@@ -133,3 +134,11 @@ def build_saved_expense_edit_keyboard(action_id: str) -> InlineKeyboardMarkup:
             ],
         ]
     )
+
+
+def build_money_sources_keyboard(sources, session_id: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        *[[InlineKeyboardButton(text=source, callback_data=f"exp:src:{session_id}:{index}")]
+          for index, source in enumerate(sources)],
+        [InlineKeyboardButton(text="Отмена", callback_data=f"exp:cancel:{session_id}")],
+    ])

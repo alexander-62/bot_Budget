@@ -1,4 +1,5 @@
 import logging
+from html import escape
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 
 from aiogram import Router, types
@@ -11,12 +12,14 @@ from keyboards.expenses import (
     build_saved_expense_actions_keyboard,
     build_saved_expense_edit_keyboard,
     build_expense_subcategories_keyboard,
+    build_money_sources_keyboard,
 )
 from keyboards.limits import build_category_actions_keyboard
 from keyboards.main import build_main_menu
 from services.async_tools import run_blocking
 from services.access import check_access_callback, check_access_message, is_allowed_username, is_allowed_user
-from config import PROFILE
+from config import PROFILE, TRACK_MONEY_SOURCE
+from services.money_sources import get_money_sources
 from services.budget import get_budget_limits, get_category_details, get_subcategories_for_category
 from services.expenses import (
     StaleExpenseError,
@@ -29,6 +32,7 @@ from state.expense_session import (
     create_session,
     get_active_session,
     is_stale_session,
+    new_session_id,
     pop_session,
     touch_session,
 )
@@ -42,6 +46,12 @@ from state.saved_expense_actions import (
 )
 
 router = Router()
+
+
+def _saved_edit_keyboard(action_id):
+    if TRACK_MONEY_SOURCE:
+        return build_saved_expense_edit_keyboard(action_id, include_source=True)
+    return build_saved_expense_edit_keyboard(action_id)
 
 
 async def _safe_delete_prompt(bot, chat_id: int | None, message_id: int | None) -> None:
@@ -139,6 +149,9 @@ async def _show_repeat_expense_amount_step(
     session = create_session(user_id=user_id, state="enter_amount")
     session.category = category
     session.subcategory = subcategory
+    if TRACK_MONEY_SOURCE:
+        await _show_source_step(message, user_id, session)
+        return
     prompt = await message.answer(
         f"Категория: {category}\nПодкатегория: {subcategory}\nВведите сумму (можно сразу с комментарием)",
         reply_markup=build_cancel_keyboard(session.session_id),
@@ -147,21 +160,63 @@ async def _show_repeat_expense_amount_step(
     session.prompt_message_id = prompt.message_id
 
 
+def _source_session_current(user_id, session):
+    if get_active_session(user_id) is not session or session.finalized:
+        return False
+    if session.saved_action_id:
+        action = get_saved_expense_action(user_id)
+        return bool(action and action.action_id == session.saved_action_id)
+    return True
+
+
+async def _show_source_step(message, user_id, session):
+    if not _source_session_current(user_id, session):
+        return
+    # Every rendered source snapshot owns fresh callback IDs. Indices from a
+    # prior keyboard must never address a refreshed (possibly shorter) list.
+    session.session_id = new_session_id()
+    picker_id = session.session_id
+    session.state = "choose_saved_source" if session.saved_action_id else "choose_source"
+    session.source_options = ()
+    old_chat_id, old_message_id = session.prompt_chat_id, session.prompt_message_id
+    session.prompt_chat_id = session.prompt_message_id = None
+    await _safe_delete_prompt(message.bot, old_chat_id, old_message_id)
+    if not _source_session_current(user_id, session) or session.session_id != picker_id:
+        return
+    try:
+        sources = await run_blocking(get_money_sources)
+    except Exception:
+        sources = []
+    if not _source_session_current(user_id, session) or session.session_id != picker_id:
+        return
+    if not sources:
+        await message.answer("Нет доступных источников. Проверьте лист «Источники»: название, активно и порядок; затем начните шаг заново.", reply_markup=build_cancel_keyboard(session.session_id))
+        return
+    session.source_options = tuple(sources)
+    prompt = await message.answer("Выберите источник денег", reply_markup=build_money_sources_keyboard(session.source_options, session.session_id))
+    if not _source_session_current(user_id, session) or session.session_id != picker_id:
+        await _safe_delete_prompt(message.bot, prompt.chat.id, prompt.message_id)
+        return
+    session.prompt_chat_id, session.prompt_message_id = prompt.chat.id, prompt.message_id
+    touch_session(session)
+
+
 async def _cancel_expense_flow(
     user_id: int, notify_target: types.Message | types.CallbackQuery
 ) -> None:
     session = pop_session(user_id)
+    editing = bool(session and session.saved_action_id)
     if session:
         target_bot = notify_target.bot
         await _safe_delete_prompt(target_bot, session.prompt_chat_id, session.prompt_message_id)
 
     if isinstance(notify_target, types.CallbackQuery):
-        await notify_target.answer("Добавление траты отменено", show_alert=False)
+        await notify_target.answer("Изменение отменено" if editing else "Добавление траты отменено", show_alert=False)
         if notify_target.message:
-            await notify_target.message.answer("Добавление траты отменено.")
+            await notify_target.message.answer("Изменение отменено. Трата сохранена." if editing else "Добавление траты отменено.")
         return
 
-    await notify_target.answer("Добавление траты отменено.")
+    await notify_target.answer("Изменение отменено. Трата сохранена." if editing else "Добавление траты отменено.")
 
 
 async def _finalize_expense(
@@ -185,6 +240,8 @@ async def _finalize_expense(
         await message_target.answer("Ошибка проверки доступа. Попробуйте позже.")
         return
 
+    if get_active_session(user_id) is not session:
+        return
     if not is_allowed:
         pop_session(user_id)
         if reason == "empty_username":
@@ -198,6 +255,19 @@ async def _finalize_expense(
     amount = session.amount or ""
     final_comment = (session.comment or "") if comment is None else comment
     actor_username = f"@{username}" if username else ("" if PROFILE.legacy else str(user_id))
+    source_kwargs = {}
+    if TRACK_MONEY_SOURCE:
+        try:
+            sources = await run_blocking(get_money_sources)
+        except Exception:
+            sources = []
+        if not _source_session_current(user_id, session):
+            return
+        if not session.money_source or session.money_source not in sources:
+            await message_target.answer("Источник больше недоступен. Выберите действующий источник.")
+            await _show_source_step(message_target, user_id, session)
+            return
+        source_kwargs["money_source"] = session.money_source
 
     try:
         saved_expense = await run_blocking(
@@ -207,12 +277,15 @@ async def _finalize_expense(
             subcategory=subcategory,
             amount=amount,
             comment=final_comment,
+            **source_kwargs,
         )
     except Exception:
         logging.exception("Ошибка записи траты в Google Sheets")
         await message_target.answer("Не удалось добавить трату. Попробуйте позже.")
         return
 
+    if get_active_session(user_id) is not session:
+        return
     session.finalized = True
     pop_session(user_id)
     await _safe_delete_prompt(message_target.bot, session.prompt_chat_id, session.prompt_message_id)
@@ -225,6 +298,8 @@ async def _finalize_expense(
     ]
     if final_comment:
         summary.append(f"Комментарий: {final_comment}")
+    if TRACK_MONEY_SOURCE:
+        summary.append(f"Источник: {escape(session.money_source or 'Не указан')}")
 
     action = create_saved_expense_action(user_id, saved_expense)
 
@@ -249,9 +324,10 @@ async def _update_saved_expense(
     message_target: types.Message,
     amount: str,
     comment: str,
+    *, money_source: str | None = None,
 ) -> None:
     session = get_active_session(user_id)
-    if session is None or session.state != "edit_saved_expense" or not session.saved_action_id:
+    if session is None or session.state not in {"edit_saved_expense", "choose_saved_source"} or not session.saved_action_id:
         await message_target.answer("Шаг устарел, начните заново.")
         return
 
@@ -261,19 +337,28 @@ async def _update_saved_expense(
         await message_target.answer("Кнопки устарели. Начните заново.")
         return
 
+    source_kwargs = {"money_source": money_source} if TRACK_MONEY_SOURCE and money_source is not None else {}
+    previous_state = session.state
+    if source_kwargs:
+        session.state = "saving_saved_source"
     try:
-        saved_expense = await run_blocking(update_expense, action.saved_expense, amount, comment)
+        saved_expense = await run_blocking(update_expense, action.saved_expense, amount, comment, **source_kwargs)
     except StaleExpenseError:
         logging.warning("Попытка изменить устаревшую трату user_id=%s", user_id)
-        pop_session(user_id)
-        finalize_saved_expense_action(user_id)
+        if _source_session_current(user_id, session):
+            pop_session(user_id)
+            finalize_saved_expense_action(user_id)
         await message_target.answer("Трата уже изменилась. Начните заново.")
         return
     except Exception:
         logging.exception("Ошибка изменения траты в Google Sheets")
+        if _source_session_current(user_id, session):
+            session.state = previous_state
         await message_target.answer("Не удалось изменить трату. Попробуйте позже.")
         return
 
+    if not _source_session_current(user_id, session) or get_saved_expense_action(user_id) is not action:
+        return
     update_saved_expense_action(user_id, saved_expense)
     pop_session(user_id)
     await _safe_delete_prompt(message_target.bot, session.prompt_chat_id, session.prompt_message_id)
@@ -284,6 +369,7 @@ async def _update_saved_expense(
                 f"Категория: {saved_expense.category}",
                 f"Подкатегория: {saved_expense.subcategory}",
                 f"Сумма: {saved_expense.amount} {currency_symbol()}",
+                *([f"Источник: {escape(getattr(saved_expense, 'money_source', '') or 'Не указан')}"] if TRACK_MONEY_SOURCE else []),
                 *( [f"Комментарий: {saved_expense.comment}"] if saved_expense.comment else [] ),
             ]
         ),
@@ -365,7 +451,7 @@ async def expense_text_step(message: types.Message) -> None:
         except ValueError as exc:
             await message.answer(
                 f"Некорректная сумма: {exc}. Введите сумму еще раз.",
-                reply_markup=build_saved_expense_edit_keyboard(session.saved_action_id or ""),
+                reply_markup=_saved_edit_keyboard(session.saved_action_id or ""),
             )
             return
 
@@ -389,7 +475,11 @@ async def expense_cancel_handler(callback: types.CallbackQuery) -> None:
         return
 
     user_id = callback.from_user.id
-    session_id = callback.data.split(":")[2]
+    parts = (callback.data or "").split(":")
+    if len(parts) != 3:
+        await callback.answer("Некорректная кнопка", show_alert=True)
+        return
+    session_id = parts[2]
     if is_stale_session(user_id, session_id):
         await callback.answer("Шаг устарел, начните заново", show_alert=True)
         return
@@ -499,12 +589,16 @@ async def expense_subcategory_handler(callback: types.CallbackQuery) -> None:
         return
 
     session.subcategory = subcategories[idx]
-    session.state = "enter_amount"
+    session.state = "choose_source" if TRACK_MONEY_SOURCE else "enter_amount"
     touch_session(session)
 
     await _safe_delete_prompt(callback.bot, session.prompt_chat_id, session.prompt_message_id)
     if callback.message is None:
         await callback.answer("Ошибка сообщения.", show_alert=True)
+        return
+    if TRACK_MONEY_SOURCE:
+        await _show_source_step(callback.message, user_id, session)
+        await callback.answer()
         return
     prompt = await callback.message.answer(
         f"Категория: {session.category}\nПодкатегория: {session.subcategory}\nВведите сумму (можно сразу с комментарием)",
@@ -514,6 +608,61 @@ async def expense_subcategory_handler(callback: types.CallbackQuery) -> None:
     session.prompt_message_id = prompt.message_id
     touch_session(session)
 
+    await callback.answer()
+
+
+@router.callback_query(lambda c: c.data and c.data.startswith("exp:src:"))
+async def expense_source_handler(callback: types.CallbackQuery) -> None:
+    if not await check_access_callback(callback):
+        return
+    parts = (callback.data or "").split(":")
+    user_id = callback.from_user.id
+    session = get_active_session(user_id)
+    if (not TRACK_MONEY_SOURCE or len(parts) != 4 or session is None
+            or parts[2] != session.session_id or not parts[3].isascii()
+            or not parts[3].isdigit() or len(parts[3]) > 6
+            or session.state not in {"choose_source", "choose_saved_source"}
+            or not _source_session_current(user_id, session) or callback.message is None):
+        await callback.answer("Шаг устарел или кнопка некорректна", show_alert=True)
+        return
+    index = int(parts[3])
+    if index >= len(session.source_options):
+        await callback.answer("Некорректный источник", show_alert=True)
+        return
+    source = session.source_options[index]
+    previous_state = session.state
+    session.state = "checking_source"
+    try:
+        sources = await run_blocking(get_money_sources)
+    except Exception:
+        sources = []
+    if not _source_session_current(user_id, session) or session.state != "checking_source":
+        await callback.answer("Шаг устарел", show_alert=True)
+        return
+    session.state = previous_state
+    if source not in sources:
+        await _show_source_step(callback.message, user_id, session)
+        await callback.answer("Источник недоступен. Выберите действующий источник.", show_alert=True)
+        return
+    session.money_source = source
+    touch_session(session)
+    if session.saved_action_id:
+        action = get_saved_expense_action(user_id)
+        await callback.answer()
+        if not _source_session_current(user_id, session) or action is not get_saved_expense_action(user_id):
+            return
+        await _update_saved_expense(user_id, callback.message, action.saved_expense.amount,
+                                    action.saved_expense.comment, money_source=source)
+        return
+    session.state = "enter_amount"
+    await _safe_delete_prompt(callback.bot, session.prompt_chat_id, session.prompt_message_id)
+    if not _source_session_current(user_id, session):
+        return
+    prompt = await callback.message.answer(
+        f"Источник: {escape(source)}\nВведите сумму (можно сразу с комментарием)",
+        reply_markup=build_cancel_keyboard(session.session_id))
+    if _source_session_current(user_id, session):
+        session.prompt_chat_id, session.prompt_message_id = prompt.chat.id, prompt.message_id
     await callback.answer()
 
 
@@ -549,7 +698,11 @@ async def saved_expense_action_handler(callback: types.CallbackQuery) -> None:
         return
 
     user_id = callback.from_user.id
-    _, _, action_name, action_id = callback.data.split(":", 3)
+    parts = (callback.data or "").split(":")
+    if len(parts) != 4:
+        await callback.answer("Некорректная кнопка", show_alert=True)
+        return
+    _, _, action_name, action_id = parts
     if is_stale_saved_expense_action(user_id, action_id):
         await callback.answer("Кнопки устарели. Начните заново.", show_alert=True)
         return
@@ -561,12 +714,19 @@ async def saved_expense_action_handler(callback: types.CallbackQuery) -> None:
 
     touch_saved_expense_action(action)
 
+    if action_name == "source" and TRACK_MONEY_SOURCE:
+        session = create_session(user_id=user_id, state="choose_saved_source")
+        session.saved_action_id = action.action_id
+        await _show_source_step(callback.message, user_id, session)
+        await callback.answer()
+        return
+
     if action_name == "edit":
         session = create_session(user_id=user_id, state="edit_saved_expense")
         session.saved_action_id = action.action_id
         prompt = await callback.message.answer(
             "Введите новую сумму. Можно сразу с комментарием.",
-            reply_markup=build_saved_expense_edit_keyboard(action.action_id),
+            reply_markup=_saved_edit_keyboard(action.action_id),
         )
         session.prompt_chat_id = prompt.chat.id
         session.prompt_message_id = prompt.message_id

@@ -11,7 +11,8 @@ from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from config import BOT_TIMEZONE, PROFILE_ID, PROFILE_RUNTIME_DIR
+from config import BOT_TIMEZONE, PROFILE_ID, PROFILE_RUNTIME_DIR, TRACK_MONEY_SOURCE
+from html import escape
 
 from aiogram import Bot, Router, types
 from aiogram.filters import CommandStart
@@ -118,7 +119,10 @@ async def _send_limits(target_message: types.Message) -> None:
 
 async def _send_recent_expenses(target_message: types.Message, limit: int = 5) -> None:
     try:
-        recent = await run_blocking(get_recent_expenses, limit)
+        if TRACK_MONEY_SOURCE:
+            recent = await run_blocking(get_recent_expenses, limit, include_source=True)
+        else:
+            recent = await run_blocking(get_recent_expenses, limit)
     except Exception:
         logging.exception("Ошибка чтения последних трат из Google Sheets")
         await target_message.answer("Не удалось загрузить траты. Попробуйте позже.")
@@ -129,10 +133,8 @@ async def _send_recent_expenses(target_message: types.Message, limit: int = 5) -
         return
 
     lines = [f"Последние {len(recent)} трат:"]
-    for idx, (date_value, username_value, category_value, subcategory_value, amount_value, comment_value) in enumerate(
-        recent,
-        start=1,
-    ):
+    for idx, item in enumerate(recent, start=1):
+        date_value, username_value, category_value, subcategory_value, amount_value, comment_value = item[:6]
         lines.append(f"{idx}. <b>{date_value}</b> | <b>{format_money_exact(amount_value)}</b> | <b>{subcategory_value}</b>")
         details = [f"Пользователь: {username_value}"]
         if category_value:
@@ -140,6 +142,9 @@ async def _send_recent_expenses(target_message: types.Message, limit: int = 5) -
         lines.append(" | ".join(details))
         if comment_value:
             lines.append(f"Комментарий: {comment_value}")
+        if TRACK_MONEY_SOURCE:
+            source = item[6] if len(item) > 6 else ""
+            lines.append(f"Источник: {escape(source or 'Не указан')}")
         lines.append("")
 
     keyboard = InlineKeyboardBuilder()

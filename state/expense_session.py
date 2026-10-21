@@ -1,5 +1,6 @@
 import time
 from dataclasses import dataclass
+from uuid import uuid4
 
 from constants import EXPENSE_SESSION_TTL_SECONDS
 
@@ -17,13 +18,15 @@ class ExpenseSession:
     prompt_message_id: int | None = None
     updated_at: float = 0.0
     finalized: bool = False
+    money_source: str = ""
+    source_options: tuple[str, ...] = ()
 
 
 _expense_sessions: dict[int, ExpenseSession] = {}
 
 
 def new_session_id() -> str:
-    return str(int(time.time() * 1000))
+    return uuid4().hex
 
 
 def create_session(user_id: int, state: str) -> ExpenseSession:

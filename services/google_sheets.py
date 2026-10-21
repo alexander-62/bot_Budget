@@ -65,16 +65,21 @@ def open_profile_spreadsheet(profile, credentials_path):
 
 def validate_profile_connection(profile, credentials_path):
     # Import lazily: startup validation itself uses the cached adapter above.
-    from services.startup_validation import _WORKSHEET_RULES, validate_worksheet_header
+    from services.startup_validation import get_worksheet_rules, validate_worksheet_header
+    from constants import MONEY_SOURCES_SHEET_NAME
     spreadsheet = open_profile_spreadsheet(profile, credentials_path)
     worksheets = {normalize_text(ws.title): ws for ws in spreadsheet.worksheets()}
-    for rule in _WORKSHEET_RULES:
+    for rule in get_worksheet_rules(profile):
         worksheet = worksheets.get(normalize_text(rule.name))
         if worksheet is None:
             raise ValueError(f"Не найден лист «{rule.name}». Создайте его по шаблону.")
         if rule.required_headers:
             try:
-                validate_worksheet_header(rule, worksheet.row_values(1), legacy=profile.legacy)
+                validate_worksheet_header(rule, worksheet.row_values(1), legacy=profile.legacy, track_money_source=profile.track_money_source)
             except ValueError:
                 raise ValueError(f"Лист «{rule.name}»: проверьте обязательные заголовки и порядок столбцов по шаблону.") from None
+        if rule.name == MONEY_SOURCES_SHEET_NAME:
+            from services.money_sources import parse_money_sources
+            if not parse_money_sources(worksheet.get_all_values()):
+                raise ValueError("Лист «Источники»: добавьте хотя бы один активный источник.")
     return True

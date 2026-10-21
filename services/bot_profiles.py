@@ -24,12 +24,15 @@ class BotProfile:
     autostart: bool = False
     credentials_file: str = ""
     legacy: bool = False
+    track_money_source: bool = False
 
     def runtime_dir(self, base_dir: Path = BASE_DIR) -> Path:
         return Path(base_dir) if self.legacy else Path(base_dir) / ".runtime" / self.id
 
 
 def _validate(profile: BotProfile) -> None:
+    if type(profile.track_money_source) is not bool:
+        raise ValueError("track_money_source must be a boolean.")
     if not re.fullmatch(r"[a-z][a-z0-9_-]{0,47}", profile.id):
         raise ValueError("Profile id must contain lowercase letters, digits, underscores or hyphens.")
     if not profile.name.strip():

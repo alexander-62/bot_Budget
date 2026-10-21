@@ -502,8 +502,14 @@ class BudgetPanel(ctk.CTk):
                     widget.configure(state="disabled")
             widget.grid(row=row * 2 + 1, column=0, sticky="ew")
             fields[key] = widget
+        source_tracking = ctk.BooleanVar(value=profile.track_money_source if profile else False)
+        self._editor_source_tracking = source_tracking
+        ctk.CTkCheckBox(
+            form, text="Учитывать источник денег", variable=source_tracking,
+            font=ctk.CTkFont(family=UI_FONT, size=13),
+        ).grid(row=14, column=0, sticky="w", pady=(16, 4))
         notice = self._label(form, "Проверка Telegram и структуры таблицы выполняется перед сохранением.", 12, MUTED, wraplength=440)
-        notice.grid(row=14, column=0, sticky="ew", pady=14)
+        notice.grid(row=15, column=0, sticky="ew", pady=14)
         save = ctk.CTkButton(editor, text="Проверить и сохранить", height=38)
         save.grid(row=1, column=0, sticky="ew", padx=26, pady=(0, 8))
         cancel = ctk.CTkButton(editor, text="Отмена", fg_color=CARD, command=cancel_editor)
@@ -515,6 +521,7 @@ class BudgetPanel(ctk.CTk):
                 values = {key: widget.get().strip() for key, widget in fields.items()}
                 values["spreadsheet_id"] = normalize_spreadsheet_id(values["spreadsheet_id"])
                 token = values.pop("token")
+                values["track_money_source"] = bool(source_tracking.get())
                 candidate = replace(profile, **values) if profile else BotProfile(**values)
             except Exception:
                 notice.configure(text="Проверьте поля: название, ID профиля и ссылка на таблицу обязательны.", text_color=RED)

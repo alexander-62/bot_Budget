@@ -1,30 +1,30 @@
 ---
 gsd_state_version: 1.0
 milestone: v1.6.0
-milestone_name: milestone
-status: completed
-last_updated: "2026-10-21T15:05:08.739Z"
-last_activity: 2026-10-21 ? v1.6.0 implemented; 89 tests / 21 modules passed, publication audit zero findings.
+milestone_name: Multiple Budget Bots
+status: implementation_complete
+last_updated: "2026-10-21T15:14:29.102Z"
+last_activity: 2026-10-21 - Phase 13 complete; v1.6.1 optional money sources; 109 tests / 25 modules passed.
 progress:
   total_phases: 5
-  completed_phases: 4
+  completed_phases: 5
   total_plans: 5
-  completed_plans: 4
-  percent: 80
+  completed_plans: 5
+  percent: 100
 ---
 
 # Project State: Bot Budget
 
 ## Current Position
 
-Phase: 13 - Optional money sources
-Plan: 13-01 in progress
-Status: Implementation complete; actual business onboarding pending
-Last activity: 2026-10-21 ? v1.6.0 implemented; 89 tests / 21 modules passed, publication audit zero findings.
+Phase: 13 - Optional money sources complete
+Plan: 13-01 complete
+Status: Implementation complete; remote update and real business setup pending
+Last activity: 2026-10-21 - Phase 13 complete; 109 tests / 25 modules pass; zero publication findings.
 
 ## Project Reference
 
-See PROJECT.md and ROADMAP.md. Phases 1?8 remain as history. Current milestone phases 9?12 have PLAN, SUMMARY and passed VERIFICATION files.
+See PROJECT.md and ROADMAP.md. Active milestone phases 9-13 have PLAN, SUMMARY and passed VERIFICATION files. Phases 1-8 remain history.
 
 ## Phase Status
 
@@ -34,6 +34,7 @@ See PROJECT.md and ROADMAP.md. Phases 1?8 remain as history. Current milestone p
 | 10. Profile Processes | Complete | PROC-01/02/03 |
 | 11. Multi-Bot Panel | Complete | UI-01/02/03/04 |
 | 12. Platform Verification | Complete | TEST-05, DOC-01 |
+| 13. Optional Money Sources | Complete | SRC-01/02/03/04/05/06 |
 
 ## Next Action
 
@@ -44,7 +45,7 @@ Operator opens `bot.bat ui`, adds new business token and dedicated Sheet, select
 - Common code, one process and spreadsheet per profile; single global panel/tray.
 - Windows DPAPI protects new tokens; legacy personal config preserved.
 - New profiles authorize numerical IDs; visibility shared within each bot.
-- Isolated full suite passes 89 tests; fake two-worker integration and legacy v1.5 personal migration covered.
+- Isolated full suite passes 109 tests; fake two-worker integration and legacy v1.5 personal migration covered.
 - Panel/form screenshots checked using scoped window HWND capture; no real credentials in screenshots.
 - Installed SDK uses legacy CLI syntax; state milestone switch succeeded. Final state written atomically with matching frontmatter/body, preserving historical notes below.
 - No push, live service calls, financial writes or Windows-login changes were performed.
@@ -63,3 +64,10 @@ Operator opens `bot.bat ui`, adds new business token and dedicated Sheet, select
 - 2026-06-29: Remote restart now writes a restart marker and the next bot start sends an explicit "Бот снова запущен" message before polling.
 - 2026-07-09: Started Phase 8 evening daily digest as a new milestone slice. Digest recipients are configured only in the `Users` sheet.
 - 2026-07-09: Completed Phase 8 implementation and tests. Live rollout requires `digest_enabled` and `last_digest_date` headers in `Users`.
+
+## Roadmap Evolution
+
+- 2026-10-21: Phase 13 added via GSD SDK phase add at explicit user request; planned and implemented autonomously.
+- Optional money-source tracking shipped locally in v1.6.1, default disabled. H identity and prior expense data preserved, I source opt-in.
+- For business after remote delivery: prepare source Sheet and I header; stop profile, enable checkbox, validate/save, restart. Personal requires no table changes.
+- No GitHub push, production profile changes, live bot calls or financial writes were performed. User AGENTS.md edits remain uncommitted.

@@ -8,7 +8,8 @@ from zoneinfo import ZoneInfo
 import gspread
 
 from constants import EXPENSES_SHEET_NAME
-from config import BOT_TIMEZONE
+from config import BOT_TIMEZONE, TRACK_MONEY_SOURCE
+from services.money_sources import validate_money_source
 from services.budget import clear_budget_snapshot_cache, get_current_month_key
 from services.google_sheets import find_worksheet_case_insensitive, get_spreadsheet
 
@@ -26,6 +27,7 @@ class SavedExpense:
     subcategory: str
     amount: str
     comment: str
+    money_source: str = ""
 
 
 class StaleExpenseError(ValueError):
@@ -116,7 +118,10 @@ def write_expense(
     subcategory: str,
     amount: str,
     comment: str = "",
+    money_source: str = "",
 ) -> SavedExpense:
+    if TRACK_MONEY_SOURCE:
+        validate_money_source(money_source)
     spreadsheet = get_spreadsheet()
     worksheet = find_worksheet_case_insensitive(spreadsheet, EXPENSES_SHEET_NAME)
     current = datetime.now(ZoneInfo(BOT_TIMEZONE))
@@ -125,8 +130,7 @@ def write_expense(
     numeric_amount = float(amount.replace(" ", "").replace(",", "."))
     expense_id = uuid4().hex
 
-    response = worksheet.append_row(
-        [
+    values = [
             today,
             _as_text_cell(month_key),
             username,
@@ -135,10 +139,14 @@ def write_expense(
             numeric_amount,
             comment,
             expense_id,
-        ],
+        ]
+    if TRACK_MONEY_SOURCE:
+        values.append(_as_text_cell(money_source))
+    response = worksheet.append_row(
+        values,
         value_input_option="USER_ENTERED",
         insert_data_option="INSERT_ROWS",
-        table_range="A:H",
+        table_range="A:I" if TRACK_MONEY_SOURCE else "A:H",
     )
     fallback_row_number = len(worksheet.col_values(1))
     row_number, row_range = _extract_row_number_from_append_response(
@@ -147,6 +155,8 @@ def write_expense(
         fallback_row_number=fallback_row_number,
     )
     clear_budget_snapshot_cache()
+    if TRACK_MONEY_SOURCE:
+        row_range = f"{worksheet.title}!A{row_number}:I{row_number}"
 
     return SavedExpense(
         expense_id=expense_id,
@@ -160,19 +170,20 @@ def write_expense(
         subcategory=subcategory,
         amount=amount,
         comment=comment,
+        money_source=money_source if TRACK_MONEY_SOURCE else "",
     )
 
 
-def update_expense(saved_expense: SavedExpense, amount: str, comment: str = "") -> SavedExpense:
+def update_expense(saved_expense: SavedExpense, amount: str, comment: str = "", *, money_source: str | None = None) -> SavedExpense:
+    if money_source is not None and TRACK_MONEY_SOURCE:
+        validate_money_source(money_source)
+    source = saved_expense.money_source if money_source is None else money_source
     worksheet = _get_expenses_worksheet()
-    current_row = _get_expense_row_values(worksheet, saved_expense.row_number)
+    current_row = _get_expense_row_values(worksheet, saved_expense.row_number, include_source=bool(saved_expense.money_source))
     _assert_same_saved_expense(saved_expense, current_row)
 
     numeric_amount = float(amount.replace(" ", "").replace(",", "."))
-    worksheet.update(
-        range_name=f"A{saved_expense.row_number}:H{saved_expense.row_number}",
-        values=[
-            [
+    values = [
                 saved_expense.date,
                 _as_text_cell(saved_expense.month_key),
                 saved_expense.username,
@@ -182,7 +193,12 @@ def update_expense(saved_expense: SavedExpense, amount: str, comment: str = "") 
                 comment,
                 saved_expense.expense_id,
             ]
-        ],
+    if TRACK_MONEY_SOURCE:
+        values.append(_as_text_cell(source) if source else "")
+    end_column = "I" if TRACK_MONEY_SOURCE else "H"
+    worksheet.update(
+        range_name=f"A{saved_expense.row_number}:{end_column}{saved_expense.row_number}",
+        values=[values],
         raw=False,
     )
     clear_budget_snapshot_cache()
@@ -191,7 +207,7 @@ def update_expense(saved_expense: SavedExpense, amount: str, comment: str = "") 
         expense_id=saved_expense.expense_id,
         sheet_name=worksheet.title,
         row_number=saved_expense.row_number,
-        row_range=f"{worksheet.title}!A{saved_expense.row_number}:H{saved_expense.row_number}",
+        row_range=f"{worksheet.title}!A{saved_expense.row_number}:{end_column}{saved_expense.row_number}",
         date=saved_expense.date,
         month_key=saved_expense.month_key,
         username=saved_expense.username,
@@ -199,18 +215,19 @@ def update_expense(saved_expense: SavedExpense, amount: str, comment: str = "") 
         subcategory=saved_expense.subcategory,
         amount=amount,
         comment=comment,
+        money_source=source if TRACK_MONEY_SOURCE else saved_expense.money_source,
     )
 
 
 def delete_expense(saved_expense: SavedExpense) -> None:
     worksheet = _get_expenses_worksheet()
-    current_row = _get_expense_row_values(worksheet, saved_expense.row_number)
+    current_row = _get_expense_row_values(worksheet, saved_expense.row_number, include_source=bool(saved_expense.money_source))
     _assert_same_saved_expense(saved_expense, current_row)
     worksheet.delete_rows(saved_expense.row_number)
     clear_budget_snapshot_cache()
 
 
-def get_recent_expenses(limit: int = 5) -> list[tuple[str, str, str, str, str, str]]:
+def get_recent_expenses(limit: int = 5, *, include_source: bool = False) -> list[tuple]:
     if limit <= 0:
         return []
 
@@ -222,9 +239,10 @@ def get_recent_expenses(limit: int = 5) -> list[tuple[str, str, str, str, str, s
 
     tail_size = max(limit * 3, limit + 5)
     start_row = max(2, last_row - tail_size + 1)
-    rows = worksheet.get(f"A{start_row}:G{last_row}") or []
+    end_column = "I" if include_source else "G"
+    rows = worksheet.get(f"A{start_row}:{end_column}{last_row}") or []
 
-    expenses: list[tuple[str, str, str, str, str, str, int]] = []
+    expenses: list[tuple] = []
     for row_offset, row in enumerate(rows, start=start_row):
         date_value = row[0].strip() if len(row) > 0 else ""
         username_value = row[2].strip() if len(row) > 2 else ""
@@ -245,11 +263,12 @@ def get_recent_expenses(limit: int = 5) -> list[tuple[str, str, str, str, str, s
                 amount_value,
                 comment_value,
                 row_offset,
+                row[8].strip() if len(row) > 8 else "",
             )
         )
 
     expenses.sort(key=lambda item: (item[0], item[6]), reverse=True)
-    return [expense[:6] for expense in expenses[:limit]]
+    return [expense[:6] + (expense[7],) if include_source else expense[:6] for expense in expenses[:limit]]
 
 
 def _get_expenses_worksheet() -> gspread.Worksheet:
@@ -257,8 +276,9 @@ def _get_expenses_worksheet() -> gspread.Worksheet:
     return find_worksheet_case_insensitive(spreadsheet, EXPENSES_SHEET_NAME)
 
 
-def _get_expense_row_values(worksheet: gspread.Worksheet, row_number: int) -> list[str]:
-    rows = worksheet.get(f"A{row_number}:H{row_number}") or []
+def _get_expense_row_values(worksheet: gspread.Worksheet, row_number: int, *, include_source: bool = False) -> list[str]:
+    end_column = "I" if TRACK_MONEY_SOURCE or include_source else "H"
+    rows = worksheet.get(f"A{row_number}:{end_column}{row_number}") or []
     if not rows:
         raise StaleExpenseError("Expense row no longer exists.")
 
@@ -277,6 +297,8 @@ def _assert_same_saved_expense(saved_expense: SavedExpense, row: list[str]) -> N
     amount = row[5].strip() if len(row) > 5 else ""
     comment = row[6].strip() if len(row) > 6 else ""
     expense_id = row[7].strip() if len(row) > 7 else ""
+    if (TRACK_MONEY_SOURCE or saved_expense.money_source) and (row[8].strip() if len(row) > 8 else "") != saved_expense.money_source:
+        raise StaleExpenseError("Expense source changed or moved.")
 
     if date_value != saved_expense.date:
         raise StaleExpenseError("Expense row changed or moved.")

@@ -9,7 +9,7 @@
 | 10. Profile Processes | Независимый запуск, health и автозапуск | PROC-01, PROC-02, PROC-03 | Complete |
 | 11. Multi-Bot Panel | Добавление, проверка и управление в панели | UI-01, UI-02, UI-03, UI-04 | Complete |
 | 12. Platform Verification | Изоляция, регрессии, документация | TEST-05, DOC-01 | Complete |
-| 13. Optional Money Sources | Включаемый источник денег в записи расходов | SRC-01, SRC-02, SRC-03, SRC-04, SRC-05, SRC-06 | In progress |
+| 13. Optional Money Sources | 1/1 | Complete    | 2026-10-21 |
 
 ## Phase 9: Bot Profiles
 
@@ -67,16 +67,17 @@
 
 ## Next step
 
-Implementation phases 9?12 complete, version 1.6.0. Open `bot.bat ui` and add the actual business bot and separate Sheet with RUB. Live token/table onboarding and first real expense remain unperformed.
+Implementation phases 9-13 complete, version 1.6.1. Deliver commits to the bot computer, prepare the optional source Sheet and expense column I, then enable the checkbox for business. Personal stays disabled. Live onboarding and first real expense remain operator checks.
 
 ### Phase 13: Optional money sources
 
 **Goal:** Per-profile optional source selection, expense persistence and saved editing, retaining disabled-profile compatibility.
 **Requirements**: SRC-01, SRC-02, SRC-03, SRC-04, SRC-05, SRC-06
 **Depends on:** Phase 12
-**Plans:** 1 plan
+**Plans:** 1/1 plans complete
 
 **Success criteria:**
+
 1. Old/personal profiles default to disabled and require no source sheet or additional Telegram step.
 2. Enabled profiles select active sources from their own Sheet and save source in I, retaining H identity and old rows.
 3. Source, amount and comment edits preserve other fields and reject stale/foreign callbacks.
@@ -84,4 +85,4 @@ Implementation phases 9?12 complete, version 1.6.0. Open `bot.bat ui` and add th
 
 Plans:
 
-- [ ] 13-01-PLAN.md — Optional money sources: profile/data, Telegram flow, desktop and verification.
+- [x] 13-01-PLAN.md — Optional money sources: profile/data, Telegram flow, desktop and verification.

@@ -42,7 +42,7 @@ Users can record expenses in Telegram quickly and reliably, and the household ge
 - Runtime smoke check passes under installed dependencies.
 
 ### Active
-- [ ] Phase 13: per-profile optional source of funds, own-sheet source list, expense entry/edit/persistence and desktop toggle (SRC-01 through SRC-06).
+- [x] Phase 13: per-profile optional source of funds, own-sheet source list, expense entry/edit/persistence and desktop toggle (SRC-01 through SRC-06).
 - [x] Profile registry, legacy compatibility, secret isolation and per-profile currencies/access (phase 9).
 - [x] Independent lifecycle, health identity and selective Windows autostart (phase 10).
 - [x] Profile selection, add/edit/connect validation and management in the desktop panel (phase 11).
@@ -121,3 +121,7 @@ After each milestone:
 ## v1.6.0 implementation result ? 2026-10-21
 
 Phases 9?12 complete: independent profile configuration/processes/Sheets/access, EUR/RUB and timezone handling, validated desktop onboarding, DPAPI token storage and selective autostart. 89 tests across 21 isolated modules pass. User-supplied business token and Sheet are still needed for live onboarding; no production profile or expense was fabricated.
+
+## Phase 13 result - 2026-10-21
+
+Optional money sources implemented in runtime v1.6.1: per-profile flag default false, own-source Sheet, expense column I, entry/edit/recent views and desktop toggle. 109 tests/25 modules pass; zero publication findings. Real bot remains on another computer; no actual profile/Sheet was changed.
