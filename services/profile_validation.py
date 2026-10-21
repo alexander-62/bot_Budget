@@ -87,8 +87,10 @@ def _sheets_error_message(error, token):
 
 def validate_profile(profile, token, *, profiles=(), token_loader=None,
                      check_telegram=telegram_identity, check_sheets=validate_profile_connection):
+    if not re.fullmatch(r"[a-z][a-z0-9_-]{0,47}", profile.id):
+        return ValidationResult(False, "ID профиля: от 1 до 48 символов, первая — строчная латинская буква. Далее допустимы строчные латинские буквы, цифры, дефис и подчёркивание. Например: st62.")
     try:
-        if not profile.name.strip() or not re.fullmatch(r"[a-z][a-z0-9_-]{0,47}", profile.id):
+        if not profile.name.strip():
             raise ValueError()
         if profile.currency not in {"EUR", "RUB"}:
             raise ValueError()
@@ -106,7 +108,7 @@ def validate_profile(profile, token, *, profiles=(), token_loader=None,
         if existing.id == profile.id:
             continue
         existing_spreadsheet = existing.spreadsheet_id
-        if existing.legacy:
+        if existing.uses_legacy_config:
             import config
             existing_spreadsheet = config.SPREADSHEET_ID
         if existing_spreadsheet == profile.spreadsheet_id:

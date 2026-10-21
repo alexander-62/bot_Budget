@@ -10,6 +10,7 @@ from queue import Empty, Queue
 from threading import Event
 import subprocess
 import sys
+import time
 import webbrowser
 from tkinter import filedialog, Menu, TclError
 
@@ -18,7 +19,7 @@ import customtkinter as ctk
 from PIL import Image, ImageTk
 
 from services.desktop_status import DesktopStatus, collect_status, format_uptime, read_int
-from services.process_control import ProcessLock, is_process_running
+from services.process_control import ProcessLock, is_process_running, recorded_process_identity, is_direct_child
 from services.windows_autostart import WindowsAutostart
 from services.bot_profiles import BotProfile, list_profiles, get_profile_token, save_profile, update_profile, set_profile_image
 from services.profile_images import import_profile_image, load_profile_image
@@ -52,31 +53,118 @@ def run_manager_action(command: str, profile_id: str = "personal") -> str:
     return result.stdout.strip()
 
 
+def collect_dashboard_statuses(profiles):
+    def collect(profile):
+        return collect_status(BASE_DIR, WEBAPP_HOST, WEBAPP_PORT, __version__, profile_id=profile.id)
+    with ThreadPoolExecutor(max_workers=min(4, max(1, len(profiles)))) as executor:
+        return dict(zip((profile.id for profile in profiles), executor.map(collect, profiles)))
+
+
+def editable_profile(profile):
+    """Import old personal settings in memory; secrets never enter form fields."""
+    if not profile or not profile.uses_legacy_config:
+        return profile
+    import config
+    return replace(profile, spreadsheet_id=config.SPREADSHEET_ID,
+                   credentials_file=config.GOOGLE_CREDENTIALS_FILE,
+                   managed_settings=True)
+
+
+def runtime_settings_changed(candidate, original, token):
+    if original is None:
+        return False
+    effective = editable_profile(original)
+    fields = ("spreadsheet_id", "currency", "timezone", "credentials_file", "track_money_source")
+    return any(getattr(candidate, key) != getattr(effective, key) for key in fields) or bool(
+        token and token != get_profile_token(original, BASE_DIR))
+
+
+def wait_for_profile_ready(profile, timeout=20):
+    from services.desktop_status import read_health
+    runtime = profile.runtime_dir(BASE_DIR)
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        pid = read_int(runtime / ".bot.pid")
+        port = read_int(runtime / ".bot.port")
+        if pid and port:
+            health = read_health(WEBAPP_HOST, port)
+            endpoint_pid = health.get("pid")
+            if (health.get("profile_id") == profile.id and health.get("polling_ready") is True
+                    and recorded_process_identity(runtime, pid, profile.id) is True
+                    and isinstance(endpoint_pid, int)
+                    and (endpoint_pid == pid or is_direct_child(endpoint_pid, pid))):
+                return
+        time.sleep(0.2)
+    raise RuntimeError("Бот не подтвердил готовность после перезапуска.")
+
+
 def save_validated_profile(candidate, original, token, cancelled):
-    actual_token = token or (get_profile_token(original, BASE_DIR) if original else "")
+    old_token = get_profile_token(original, BASE_DIR) if original else ""
+    actual_token = token or old_token
     result = validate_profile(candidate, actual_token, profiles=list_profiles(BASE_DIR),
                               token_loader=lambda p: get_profile_token(p, BASE_DIR))
     if not result.ok or cancelled.is_set():
         return result, None
     runtime = candidate.runtime_dir(BASE_DIR)
     runtime.mkdir(parents=True, exist_ok=True)
-    # Serialize with manager startup and hold the worker lock through persistence.
-    # A worker started while validation was in flight must keep its old settings.
+    restart = runtime_settings_changed(candidate, original, token)
+    migration = bool(original and original.uses_legacy_config and not candidate.uses_legacy_config)
+    saved = None
+    stopped = False
     start_lock = ProcessLock(runtime / ".bot-start.lock")
     bot_lock = ProcessLock(runtime / ".bot.lock")
     try:
-        if not start_lock.acquire() or not bot_lock.acquire():
-            return ValidationResult(False, "Бот запущен или запускается. Остановите его и сохраните настройки снова."), None
+        if not start_lock.acquire():
+            return ValidationResult(False, "Бот запускается. Повторите сохранение через несколько секунд."), None
+        if original:
+            current = next((p for p in list_profiles(BASE_DIR) if p.id == original.id), None)
+            if current != original:
+                return ValidationResult(False, "Настройки уже изменились. Откройте форму заново."), None
         pid = read_int(runtime / ".bot.pid")
-        if pid and is_process_running(pid):
-            return ValidationResult(False, "Бот запущен. Остановите его перед изменением настроек."), None
-        if cancelled.is_set():
+        running = bool(pid and is_process_running(pid))
+        if running:
+            if original is None or recorded_process_identity(runtime, pid, candidate.id) is not True:
+                return ValidationResult(False, "Не удалось подтвердить процесс бота. Обновите статус и повторите сохранение."), None
+            if restart:
+                if cancelled.is_set():
+                    return result, None
+                run_manager_action("stop", candidate.id)
+                stopped = True
+        if not running or stopped:
+            deadline = time.monotonic() + 5
+            while not bot_lock.acquire():
+                if time.monotonic() >= deadline:
+                    raise RuntimeError("Процесс ещё останавливается.")
+                time.sleep(0.05)
+        if cancelled.is_set() and not stopped:
             return result, None
         function = update_profile if original else save_profile
-        return result, function(candidate, token=token or None, base_dir=BASE_DIR)
+        saved = function(candidate, token=(actual_token if migration else token or None), base_dir=BASE_DIR)
+    except Exception:
+        result = ValidationResult(False, "Не удалось сохранить настройки. Прежние настройки сохранены.")
     finally:
         bot_lock.release()
         start_lock.release()
+    if stopped:
+        try:
+            run_manager_action("start", candidate.id)
+            wait_for_profile_ready(saved or original)
+        except Exception:
+            # Undo the committed configuration if the replacement cannot start.
+            if saved:
+                try:
+                    run_manager_action("stop", candidate.id)
+                    update_profile(original, token=None if original.uses_legacy_config else old_token, base_dir=BASE_DIR)
+                    run_manager_action("start", original.id)
+                    wait_for_profile_ready(original)
+                    return ValidationResult(False, "Новые настройки не запустились. Прежние настройки восстановлены, бот снова работает."), None
+                except Exception:
+                    return ValidationResult(False, "Ошибка перезапуска или восстановления. Проверьте состояние бота и его журнал."), saved
+            return ValidationResult(False, "Настройки не сохранены; не удалось запустить бота заново. Проверьте журнал."), None
+    if saved:
+        message = "Настройки сохранены. Бот перезапущен." if stopped else "Настройки сохранены без перезапуска."
+        return ValidationResult(True, message), saved
+    return result, None
 
 
 def save_profile_picture(profile_id, path, base_dir=None):
@@ -165,7 +253,7 @@ class BudgetPanel(ctk.CTk):
         # CTk sizes are logical pixels; fit both small screens and Windows DPI.
         scale = self._get_window_scaling()
         width = min(880, int((self.winfo_screenwidth() - 60) / scale))
-        height = min(790, int((self.winfo_screenheight() - 120) / scale))
+        height = min(790, int((self.winfo_screenheight() - 100) / scale))
         self.geometry(f"{width}x{height}+20+20")
         self.minsize(min(820, width), min(740, height))
         self.protocol("WM_DELETE_WINDOW", self._hide)
@@ -188,6 +276,9 @@ class BudgetPanel(ctk.CTk):
         self.selected_profile = self.profiles[0]
         self._generation = 0
         self._profile_statuses = {}
+        self._dashboard_statuses = {}
+        self._expanded_profile = None
+        self._profile_cards = {}
         self._editor = None
         self._picture_busy = False
         self._autostart = WindowsAutostart(BASE_DIR, profiles_mode=True)
@@ -202,7 +293,7 @@ class BudgetPanel(ctk.CTk):
 
     def _label(self, parent, text, size=14, color=TEXT, bold=False, **kwargs):
         return ctk.CTkLabel(
-            parent, text=text, text_color=color, height=0,
+            parent, text=text, text_color=color, height=kwargs.pop("height", 0),
             font=ctk.CTkFont(family=UI_FONT, size=size, weight="bold" if bold else "normal"),
             **kwargs,
         )
@@ -211,25 +302,38 @@ class BudgetPanel(ctk.CTk):
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(1, weight=1)
         header = ctk.CTkFrame(self, fg_color="transparent")
-        header.grid(row=0, column=0, sticky="ew", padx=30, pady=(26, 18))
+        header.grid(row=0, column=0, sticky="ew", padx=30, pady=(16, 12))
         self._label(header, "Bot Budget", 27, bold=True).pack(side="left")
         self._label(header, "ПАНЕЛЬ УПРАВЛЕНИЯ", 11, MUTED).pack(side="left", padx=18, pady=(6, 0))
         self._label(header, "●  Локально", 12, MUTED).pack(side="right", pady=(6, 0))
 
         body = ctk.CTkScrollableFrame(self, fg_color="transparent", corner_radius=0, scrollbar_button_color=BORDER)
         body.grid(row=1, column=0, sticky="nsew", padx=30)
+        self._dashboard_scroll = body
         body.grid_columnconfigure(0, weight=1)
-        selector = ctk.CTkFrame(body, fg_color="transparent")
-        selector.grid(row=0, column=0, sticky="ew", pady=(0, 14))
-        selector.grid_columnconfigure(0, weight=1)
-        self.profile_menu = ctk.CTkOptionMenu(selector, values=self._profile_labels(), command=self._select_profile)
-        self.profile_menu.grid(row=0, column=0, sticky="ew", padx=(0, 10))
-        ctk.CTkButton(selector, text="Добавить бота", width=115, command=self._add_profile).grid(row=0, column=1, padx=5)
-        self.edit_button = ctk.CTkButton(selector, text="Настройки", width=100, command=self._edit_profile)
-        self.edit_button.grid(row=0, column=2)
-        body = ctk.CTkFrame(body, fg_color="transparent")
-        body.grid(row=1, column=0, sticky="ew")
+        toolbar = ctk.CTkFrame(body, fg_color="transparent")
+        toolbar.grid(row=0, column=0, sticky="ew", pady=(0, 16))
+        self.dashboard_summary = self._label(toolbar, "Ваши боты · проверяем состояние", 14, MUTED)
+        self.dashboard_summary.pack(side="left")
+        ctk.CTkButton(toolbar, text="+ Добавить бота", width=145, height=36,
+                      command=self._add_profile).pack(side="right")
+        self.dashboard = ctk.CTkFrame(body, fg_color="transparent")
+        self.dashboard.grid(row=1, column=0, sticky="ew")
+        self.dashboard.grid_columnconfigure(0, weight=1)
+        # Retain selection state for editor callbacks; navigation uses cards.
+        self.profile_menu = ctk.CTkOptionMenu(toolbar, values=self._profile_labels(), command=self._select_profile)
+        self.detail_panel = body = ctk.CTkFrame(self.dashboard, fg_color="transparent")
         body.grid_columnconfigure(0, weight=1)
+        self._sync_profile_cards()
+        detail_toolbar = ctk.CTkFrame(body, fg_color="transparent")
+        detail_toolbar.grid(row=0, column=0, sticky="ew", pady=(0, 10))
+        self._label(detail_toolbar, "Управление ботом", 15, MUTED).pack(side="left")
+        self.edit_button = ctk.CTkButton(detail_toolbar, text="Настройки", width=110, command=self._edit_profile)
+        self.edit_button.pack(side="right")
+        content = ctk.CTkFrame(body, fg_color="transparent")
+        content.grid(row=1, column=0, sticky="ew")
+        content.grid_columnconfigure(0, weight=1)
+        body = content
 
         hero = ctk.CTkFrame(body, fg_color=CARD, corner_radius=22, border_width=1, border_color=BORDER)
         hero.grid(row=0, column=0, sticky="ew")
@@ -254,14 +358,18 @@ class BudgetPanel(ctk.CTk):
         logo_card.grid_columnconfigure(0, weight=1)
         self.logo_label = self._label(logo_card, "", 60, "#9A5868", bold=True)
         self.logo_label.grid(row=0, column=0, pady=(6, 0))
-        picture_controls = ctk.CTkFrame(logo_card, fg_color="transparent")
-        picture_controls.grid(row=1, column=0, padx=6, pady=6)
+        self.logo_card = logo_card
+        picture_controls = self.picture_controls = ctk.CTkFrame(logo_card, fg_color="transparent")
         self.picture_button = ctk.CTkButton(picture_controls, text="Картинка", width=76, height=26,
                                           fg_color=CARD, command=self._choose_profile_picture)
         self.picture_button.pack(side="left", padx=(0, 3))
         self.picture_reset_button = ctk.CTkButton(picture_controls, text="Сбросить", width=76, height=26,
                                                 fg_color=CARD, command=self._clear_profile_picture)
         self.picture_reset_button.pack(side="left")
+        for widget in (logo_card, self.logo_label, picture_controls, self.picture_button, self.picture_reset_button):
+            widget.bind("<Enter>", self._show_picture_controls, add="+")
+            widget.bind("<Leave>", self._schedule_picture_hide, add="+")
+        self._picture_hide_id = None
         self._render_profile_image()
 
         self._label(body, "Подключения", 16, bold=True).grid(row=1, column=0, sticky="w", pady=(20, 10))
@@ -315,7 +423,7 @@ class BudgetPanel(ctk.CTk):
         self._label(preferences, "Запускать вместе с Windows", 14, bold=True).grid(
             row=0, column=0, sticky="w", padx=20, pady=(17, 0),
         )
-        self._label(preferences, "Бот включится при входе, панель останется в трее.", 12, MUTED).grid(
+        self._label(preferences, "Отмеченные боты включатся при входе в Windows.", 12, MUTED).grid(
             row=1, column=0, sticky="w", padx=20, pady=(2, 18),
         )
         self.autostart_var = ctk.BooleanVar(value=False)
@@ -342,6 +450,113 @@ class BudgetPanel(ctk.CTk):
                       fg_color="transparent", hover_color=CARD, text_color=MUTED).pack(side="right")
         ctk.CTkButton(footer, text="Выйти из панели", command=self._quit, width=120, height=28,
                       fg_color="transparent", hover_color=CARD, text_color=MUTED).pack(side="right", padx=8)
+
+    def _sync_profile_cards(self):
+        if set(self._profile_cards) != {p.id for p in self.profiles}:
+            for widgets in self._profile_cards.values():
+                widgets["frame"].destroy()
+            self._profile_cards = {}
+            for index, profile in enumerate(self.profiles):
+                frame = ctk.CTkFrame(self.dashboard, fg_color=CARD, corner_radius=18,
+                                     border_width=1, border_color=BORDER, cursor="hand2")
+                frame.grid(row=index * 2, column=0, sticky="ew", pady=(0, 12))
+                frame.grid_columnconfigure(1, weight=1)
+                image_label = self._label(frame, "", 30, ACCENT, bold=True, width=64, height=64)
+                image_label.grid(row=0, column=0, rowspan=3, padx=(18, 16), pady=14)
+                name = self._label(frame, profile.name, 24, bold=True, anchor="w")
+                name.grid(row=0, column=1, sticky="ew", pady=(14, 2))
+                status = self._label(frame, "● Проверяем состояние", 13, MUTED, anchor="w")
+                status.grid(row=1, column=1, sticky="ew")
+                meta = self._label(frame, "", 11, MUTED, anchor="w")
+                meta.grid(row=2, column=1, sticky="ew", pady=(3, 14))
+                arrow = self._label(frame, "⌄", 24, MUTED, width=35)
+                arrow.grid(row=0, column=2, rowspan=3, padx=(10, 20))
+                widgets = dict(frame=frame, name=name, status=status, meta=meta, arrow=arrow, image_label=image_label)
+                self._profile_cards[profile.id] = widgets
+                for widget in (frame, name, status, meta, arrow, image_label):
+                    widget.bind("<Button-1>", lambda event, key=profile.id: self._toggle_card(key), add="+")
+        for profile in self.profiles:
+            widgets = self._profile_cards[profile.id]
+            widgets["name"].configure(text=profile.name)
+            state = self._profile_statuses.get(profile.id)
+            text, color = {"running": ("Работает", GREEN), "starting": ("Запускается", AMBER),
+                           "offline": ("Нет связи с сервисами", AMBER), "stopped": ("Остановлен", MUTED)}.get(state, ("Проверяем состояние", MUTED))
+            widgets["status"].configure(text="● " + text, text_color=color)
+            info = self._dashboard_statuses.get(profile.id)
+            uptime = " · В работе " + format_uptime(info.uptime_seconds) if info and info.pid else ""
+            widgets["meta"].configure(text=f"{profile.currency} · {profile.timezone}{uptime}")
+            expanded = self._expanded_profile == profile.id
+            widgets["arrow"].configure(text="⌃" if expanded else "⌄")
+            widgets["frame"].configure(border_color=ACCENT if expanded else BORDER)
+            source = load_profile_image(profile, BASE_DIR, size=(64, 64))
+            if source is not None:
+                try:
+                    widgets["image"] = ctk.CTkImage(light_image=source.copy(), dark_image=source.copy(), size=(64, 64))
+                finally:
+                    source.close()
+                widgets["image_label"].configure(image=widgets["image"], text="")
+            else:
+                widgets["image_label"].configure(image=None, text=profile.name[:1].upper())
+        running = sum(state == "running" for state in self._profile_statuses.values())
+        self.dashboard_summary.configure(text=f"Ботов: {len(self.profiles)}   ·   Работают: {running}")
+
+    def _toggle_card(self, profile_id):
+        if getattr(self, "_saving_profile", False) or self._busy or self._picture_busy:
+            self.feedback.configure(text="Дождитесь завершения текущей операции.", text_color=AMBER)
+            return
+        if self._expanded_profile == profile_id:
+            self._expanded_profile = None
+            self.detail_panel.grid_remove()
+        else:
+            profile = next(p for p in self.profiles if p.id == profile_id)
+            self._select_profile(self._profile_label(profile))
+            self._expanded_profile = profile_id
+            index = next(i for i, p in enumerate(self.profiles) if p.id == profile_id)
+            self.detail_panel.grid(row=index * 2 + 1, column=0, sticky="ew", padx=12, pady=(0, 22))
+            status = self._dashboard_statuses.get(profile_id)
+            if status:
+                self._render_status(status)
+        self.picture_controls.grid_remove()
+        self._sync_profile_cards()
+        if self._expanded_profile:
+            self.after_idle(self._reveal_expanded_card)
+
+    def _reveal_expanded_card(self):
+        if self._closed or not self._expanded_profile:
+            return
+        canvas = self._dashboard_scroll._parent_canvas
+        frame = self._profile_cards[self._expanded_profile]["frame"]
+        bounds = canvas.bbox("all")
+        if bounds:
+            target = canvas.canvasy(0) + frame.winfo_rooty() - canvas.winfo_rooty() - 8
+            canvas.yview_moveto(max(0, target) / max(1, bounds[3]))
+
+    def _render_dashboard(self, statuses):
+        self._dashboard_statuses = statuses
+        self._profile_statuses = {key: value.state for key, value in statuses.items()}
+        self._sync_profile_cards()
+        selected = statuses.get(self.selected_profile.id)
+        if selected:
+            self._render_status(selected)
+
+    def _show_picture_controls(self, event=None):
+        if self._picture_hide_id is not None:
+            self.after_cancel(self._picture_hide_id)
+            self._picture_hide_id = None
+        self.picture_controls.grid(row=1, column=0, padx=6, pady=6)
+
+    def _schedule_picture_hide(self, event=None):
+        if self._picture_hide_id is not None:
+            self.after_cancel(self._picture_hide_id)
+        self._picture_hide_id = self.after(100, self._hide_picture_controls)
+
+    def _hide_picture_controls(self):
+        self._picture_hide_id = None
+        x, y = self.winfo_pointerxy()
+        inside = (self.logo_card.winfo_rootx() <= x < self.logo_card.winfo_rootx() + self.logo_card.winfo_width()
+                  and self.logo_card.winfo_rooty() <= y < self.logo_card.winfo_rooty() + self.logo_card.winfo_height())
+        if not inside:
+            self.picture_controls.grid_remove()
 
     def _set_icon(self):
         try:
@@ -404,6 +619,7 @@ class BudgetPanel(ctk.CTk):
             self.feedback.configure(text="Не удалось сохранить картинку. Выберите PNG, JPEG, WebP или BMP до 10 МБ.", text_color=RED)
             return
         self.profiles = list_profiles(BASE_DIR)
+        self._sync_profile_cards()
         if profile.id == self.selected_profile.id:
             self.selected_profile = next(p for p in self.profiles if p.id == profile.id)
             self._render_profile_image()
@@ -423,9 +639,7 @@ class BudgetPanel(ctk.CTk):
         if self._refresh_pending or self._closed:
             return
         self._refresh_pending = True
-        generation = self._generation
-        profile_id = self.selected_profile.id
-        self._submit(("status", generation), lambda: collect_status(BASE_DIR, WEBAPP_HOST, WEBAPP_PORT, __version__, profile_id=profile_id))
+        self._submit(("dashboard", self._generation), collect_dashboard_statuses, tuple(self.profiles))
 
     def _scheduled_refresh(self):
         self.refresh()
@@ -447,6 +661,16 @@ class BudgetPanel(ctk.CTk):
                 continue
             if kind == "profile-save":
                 self._finish_profile_save(result, error)
+                continue
+            if kind == "dashboard":
+                self._refresh_pending = False
+                if error:
+                    self.last_check.configure(text="Не удалось обновить состояния. Повторим проверку.", text_color=AMBER)
+                else:
+                    self._render_dashboard(result)
+                if self._refresh_again:
+                    self._refresh_again = False
+                    self.refresh()
                 continue
             if kind == "status":
                 self._refresh_pending = False
@@ -489,6 +713,7 @@ class BudgetPanel(ctk.CTk):
         self._profile_statuses[self.selected_profile.id] = status.state
         self.profile_menu.configure(values=self._profile_labels())
         self.profile_menu.set(self._profile_label(self.selected_profile))
+        self._sync_profile_cards()
         self._keep_accessible()
         title, detail, color, badge = {
             "running": ("Бот работает", "Готов принимать ваши траты в Telegram.", GREEN, "На связи"),
@@ -517,9 +742,9 @@ class BudgetPanel(ctk.CTk):
 
     def _update_buttons(self):
         running = bool(self._last_status and self._last_status.pid)
-        self.edit_button.configure(state="disabled" if running or self._busy or self.selected_profile.legacy else "normal")
+        self.edit_button.configure(state="disabled" if self._busy or getattr(self, "_saving_profile", False) else "normal")
         for command, button in self.action_buttons.items():
-            enabled = not self._busy and ((command == "start" and not running) or (command != "start" and running))
+            enabled = not self._busy and not getattr(self, "_saving_profile", False) and ((command == "start" and not running) or (command != "start" and running))
             button.configure(state="normal" if enabled else "disabled")
 
     def _action(self, command):
@@ -579,6 +804,11 @@ class BudgetPanel(ctk.CTk):
         # Until status is known, avoid submitting a start to an already running profile.
         for button in self.action_buttons.values():
             button.configure(state="disabled")
+        if self._expanded_profile is not None:
+            self._expanded_profile = profile.id
+            index = next(i for i, item in enumerate(self.profiles) if item.id == profile.id)
+            self.detail_panel.grid(row=index * 2 + 1, column=0, sticky="ew", padx=12, pady=(0, 22))
+            self._sync_profile_cards()
         self.refresh()
 
     def _toggle_profile_autostart(self):
@@ -609,8 +839,8 @@ class BudgetPanel(ctk.CTk):
         self._show_profile_editor(None)
 
     def _edit_profile(self):
-        if self._busy or not self._last_status or self._last_status.pid or self.selected_profile.legacy:
-            self.feedback.configure(text="Остановите бота перед изменением настроек. Личный профиль настраивается через конфигурацию.", text_color=AMBER)
+        if self._busy or getattr(self, "_saving_profile", False):
+            self.feedback.configure(text="Дождитесь завершения текущей операции.", text_color=AMBER)
             return
         self._show_profile_editor(self.selected_profile)
 
@@ -640,7 +870,8 @@ class BudgetPanel(ctk.CTk):
         form.grid(row=0, column=0, sticky="nsew", padx=18, pady=18)
         form.grid_columnconfigure(0, weight=1)
         fields = {}
-        definitions = [("name", "Название"), ("id", "ID профиля (латиница, цифры, дефис)"),
+        editable = editable_profile(profile)
+        definitions = [("name", "Название"), ("id", "ID профиля (строчная латиница, цифры, - и _)"),
                        ("spreadsheet_id", "Ссылка или ID Google Sheets"), ("currency", "Валюта"),
                        ("timezone", "Часовой пояс"), ("credentials_file", "Путь к ключу Google (пусто — общий ключ)"),
                        ("token", "Токен Telegram (пусто — сохранить текущий)" if profile else "Токен Telegram из BotFather")]
@@ -651,7 +882,7 @@ class BudgetPanel(ctk.CTk):
                 widget.set(profile.currency if profile else "EUR")
             else:
                 widget = ctk.CTkEntry(form, height=36, show="•" if key == "token" else "")
-                value = getattr(profile, key, "") if profile else ("Europe/Moscow" if key == "timezone" else "")
+                value = getattr(editable, key, "") if profile else ("Europe/Moscow" if key == "timezone" else "")
                 widget.insert(0, value)
                 if profile and key == "id":
                     widget.configure(state="disabled")
@@ -664,7 +895,7 @@ class BudgetPanel(ctk.CTk):
             form, text="Учитывать источник денег", variable=source_tracking,
             font=ctk.CTkFont(family=UI_FONT, size=13),
         ).grid(row=14, column=0, sticky="w", pady=(16, 4))
-        notice = self._label(form, "Проверка Telegram и структуры таблицы выполняется перед сохранением.", 12, MUTED, wraplength=440)
+        notice = self._label(form, "Перед сохранением проверим подключение. При изменении рабочих параметров запущенный бот автоматически перезапустится.", 12, MUTED, wraplength=440)
         notice.grid(row=15, column=0, sticky="ew", pady=14)
         save = ctk.CTkButton(editor, text="Проверить и сохранить", height=38)
         save.grid(row=1, column=0, sticky="ew", padx=26, pady=(0, 8))
@@ -678,12 +909,13 @@ class BudgetPanel(ctk.CTk):
                 values["spreadsheet_id"] = normalize_spreadsheet_id(values["spreadsheet_id"])
                 token = values.pop("token")
                 values["track_money_source"] = bool(source_tracking.get())
-                candidate = replace(profile, **values) if profile else BotProfile(**values)
+                candidate = replace(editable, **values) if profile else BotProfile(**values)
             except Exception:
                 notice.configure(text="Проверьте поля: название, ID профиля и ссылка на таблицу обязательны.", text_color=RED)
                 return
             save.configure(state="disabled")
             self._saving_profile = True
+            self._update_buttons()
             notice.configure(text="Проверяем Telegram и Google Sheets…", text_color=MUTED)
             # Form identity is separate from selected profile generation: switching
             # profiles cannot redirect this save or apply its response to another form.
@@ -693,6 +925,8 @@ class BudgetPanel(ctk.CTk):
 
     def _finish_profile_save(self, result, error):
         self._saving_profile = False
+        if hasattr(self, "_update_buttons"):
+            self._update_buttons()
         editor, save, notice, candidate, generation = self._save_context
         if result and result[1]:
             self.profiles = list_profiles(BASE_DIR)
@@ -714,7 +948,9 @@ class BudgetPanel(ctk.CTk):
             self.refresh()
         else:
             self._select_profile(self._profile_label(result[1]))
-        self.feedback.configure(text="Профиль сохранён после проверки Telegram и Google Sheets.", text_color=GREEN)
+        if hasattr(self, "_sync_profile_cards"):
+            self._sync_profile_cards()
+        self.feedback.configure(text=result[0].message, text_color=GREEN)
         editor.destroy()
 
     def _tray_available(self):

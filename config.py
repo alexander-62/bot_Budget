@@ -56,8 +56,14 @@ def _load_env_file(path: Path = ENV_FILE) -> dict[str, str]:
 from services.bot_profiles import BotProfile, get_profile
 
 PROFILE_ID = os.getenv("BOT_BUDGET_PROFILE", "personal")
-PROFILE = (get_profile(PROFILE_ID, BASE_DIR) if "BOT_BUDGET_PROFILE" in os.environ
-           else BotProfile("personal", "Личный бюджет", "", legacy=True))
+if "BOT_BUDGET_PROFILE" in os.environ:
+    PROFILE = get_profile(PROFILE_ID, BASE_DIR)
+else:
+    try:
+        PROFILE = get_profile("personal", BASE_DIR)
+    except ValueError:
+        # Operational tools can still report/recover a malformed registry.
+        PROFILE = BotProfile("personal", "Личный бюджет", "", legacy=True)
 _ENV_VALUES = _load_env_file()
 
 
@@ -77,9 +83,9 @@ def _get_config_value(name: str, default: str = "") -> str:
     return default
 
 
-BOT_TOKEN = _get_config_value("BOT_TOKEN") if PROFILE.legacy else ""
+BOT_TOKEN = _get_config_value("BOT_TOKEN") if PROFILE.uses_legacy_config else ""
 GOOGLE_CREDENTIALS_FILE = _get_config_value("GOOGLE_CREDENTIALS_FILE")
-SPREADSHEET_ID = _get_config_value("SPREADSHEET_ID") if PROFILE.legacy else ""
+SPREADSHEET_ID = _get_config_value("SPREADSHEET_ID") if PROFILE.uses_legacy_config else ""
 WEBAPP_HOST = _get_config_value("WEBAPP_HOST", "127.0.0.1")
 WEBAPP_PORT = int(_get_config_value("WEBAPP_PORT", "8080"))
 WEBAPP_URL = _get_config_value("WEBAPP_URL", f"http://{WEBAPP_HOST}:{WEBAPP_PORT}/webapp")
@@ -87,13 +93,14 @@ CURRENCY = PROFILE.currency
 TRACK_MONEY_SOURCE = PROFILE.track_money_source
 BOT_TIMEZONE = PROFILE.timezone
 PROFILE_RUNTIME_DIR = PROFILE.runtime_dir(BASE_DIR)
-if not PROFILE.legacy:
+if not PROFILE.uses_legacy_config:
     from services.profile_secrets import load_token
     BOT_TOKEN = load_token(PROFILE.id, BASE_DIR)
     SPREADSHEET_ID = PROFILE.spreadsheet_id
     GOOGLE_CREDENTIALS_FILE = PROFILE.credentials_file or GOOGLE_CREDENTIALS_FILE
     # Each additional process gets a port from its manager, never the personal port.
-    WEBAPP_PORT = int(os.getenv("BOT_BUDGET_WEBAPP_PORT", "0"))
+    if "BOT_BUDGET_PROFILE" in os.environ:
+        WEBAPP_PORT = int(os.getenv("BOT_BUDGET_WEBAPP_PORT", "0"))
 
 
 def get_credentials_path() -> Path:

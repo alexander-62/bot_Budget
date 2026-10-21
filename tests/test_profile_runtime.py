@@ -36,6 +36,7 @@ class ProfileRuntimeTests(unittest.TestCase):
                 profile = BotProfile("business", "Business", "business-table", "RUB", credentials_file=credentials)
                 (base / "profiles.json").write_text(json.dumps({"profiles": [asdict(profile)]}), encoding="utf-8")
                 env = {key: value for key, value in os.environ.items() if not key.startswith("BOT_BUDGET_") and key not in {"BOT_TOKEN", "SPREADSHEET_ID", "GOOGLE_CREDENTIALS_FILE", "WEBAPP_PORT"}}
+                env["PYTHONUTF8"] = "1"
                 env["BOT_BUDGET_PROFILE"] = "business"
                 code = """import sys, json
 sys.path.insert(0, sys.argv[1])
@@ -50,7 +51,19 @@ with patch('services.profile_secrets.load_token', return_value=''):
                 self.assertEqual(table, "business-table")
                 self.assertEqual(key, credentials or "common-key.json")
                 self.assertEqual(currency, "RUB")
-                self.assertEqual(Path(runtime), base / ".runtime" / "business")
+                self.assertEqual(Path(runtime).resolve(), (base / ".runtime" / "business").resolve())
+
+    def test_managed_personal_uses_registry_and_protected_token_without_profile_env(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            (base / "config.py").write_text((ROOT / "config.py").read_text(encoding="utf-8"), encoding="utf-8")
+            (base / ".env").write_text("BOT_TOKEN=111:old_fake\nSPREADSHEET_ID=old-table\nGOOGLE_CREDENTIALS_FILE=common.json\n", encoding="utf-8")
+            profile = BotProfile("personal", "Personal", "managed-table", "RUB", legacy=True, managed_settings=True, credentials_file="own.json")
+            (base / "profiles.json").write_text(json.dumps({"profiles": [asdict(profile)]}), encoding="utf-8")
+            env = {key: value for key, value in os.environ.items() if not key.startswith("BOT_BUDGET_") and key not in {"BOT_TOKEN", "SPREADSHEET_ID", "GOOGLE_CREDENTIALS_FILE"}}
+            env["PYTHONUTF8"] = "1"
+            code = "import sys; sys.path.insert(0,sys.argv[1]); from unittest.mock import patch; " + "\nwith patch('services.profile_secrets.load_token', return_value='222:protected_fake'):\n import config\n assert config.BOT_TOKEN == '222:protected_fake'\n assert config.SPREADSHEET_ID == 'managed-table'\n assert config.CURRENCY == 'RUB'\n assert config.GOOGLE_CREDENTIALS_FILE == 'own.json'\n assert config.PROFILE.legacy\n assert not config.PROFILE.uses_legacy_config"
+            subprocess.run([sys.executable, "-B", "-c", code, str(base)], cwd=ROOT, env=env, capture_output=True, check=True)
 
     def test_restart_helper_explicitly_selects_current_profile(self):
         original = Path.exists

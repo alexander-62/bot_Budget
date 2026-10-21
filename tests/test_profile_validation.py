@@ -40,6 +40,14 @@ class ValidationTests(unittest.TestCase):
             self.assertNotIn(self.token, str(error.exception))
             self.assertTrue(error.exception.__suppress_context__)
 
+    def test_uppercase_profile_id_explains_error_before_network(self):
+        check = Mock()
+        result = validate_profile(replace(self.profile, id="St62"), self.token, check_telegram=check)
+        self.assertFalse(result.ok)
+        self.assertIn("ID профиля", result.message)
+        self.assertIn("st62", result.message)
+        check.assert_not_called()
+
     def test_invalid_fields_fail_before_network(self):
         check = Mock()
         result = validate_profile(replace(self.profile, timezone="invalid-zone"), self.token, check_telegram=check)

@@ -44,6 +44,54 @@ class DesktopStatusTests(unittest.TestCase):
                 health.return_value["polling_ready"] = False
                 self.assertEqual(collect_status(base, "localhost", 8080, "1.5.0").state, "starting")
 
+    def test_windows_venv_child_health_requires_verified_launcher(self):
+        with tempfile.TemporaryDirectory() as folder:
+            base = Path(folder)
+            (base / ".bot.pid").write_text("111", encoding="utf-8")
+            with (
+                patch.object(desktop_status, "read_health", return_value={
+                    "ok": True, "pid": 222, "polling_ready": True,
+                }),
+                patch.object(desktop_status, "probe_service", return_value=ConnectionStatus(True)),
+                patch.object(desktop_status, "is_process_running", return_value=True),
+                patch.object(desktop_status, "recorded_process_identity", side_effect=lambda base, pid, profile: pid == 111),
+                patch.object(desktop_status, "is_direct_child", return_value=True) as child,
+            ):
+                result = collect_status(base, "localhost", 8080, "installed")
+                self.assertEqual((result.state, result.pid), ("running", 111))
+                child.assert_called_once_with(222, 111)
+                child.return_value = False
+                self.assertEqual(collect_status(base, "localhost", 8080, "installed").state, "stopped")
+
+    def test_nonlegacy_child_without_profile_id_requires_os_ownership(self):
+        from services.bot_profiles import BotProfile
+        with tempfile.TemporaryDirectory() as folder:
+            base = Path(folder)
+            profile = BotProfile("st62", "Second", "sheet-second")
+            runtime = profile.runtime_dir(base)
+            runtime.mkdir(parents=True)
+            (runtime / ".bot.pid").write_text("111", encoding="utf-8")
+            with (
+                patch("services.bot_profiles.get_profile", return_value=profile),
+                patch.object(desktop_status, "read_health", return_value={
+                    "ok": True, "pid": 222, "polling_ready": True,
+                }) as health,
+                patch.object(desktop_status, "probe_service", return_value=ConnectionStatus(True)),
+                patch.object(desktop_status, "is_process_running", return_value=True),
+                patch.object(desktop_status, "recorded_process_identity", return_value=True) as ownership,
+                patch.object(desktop_status, "is_direct_child", return_value=True) as child,
+            ):
+                result = collect_status(base, "localhost", 8080, "installed", "st62")
+                self.assertEqual((result.state, result.pid), ("running", 111))
+                child.return_value = False
+                self.assertEqual(collect_status(base, "localhost", 8080, "installed", "st62").state, "starting")
+                child.return_value = True
+                ownership.return_value = False
+                self.assertEqual(collect_status(base, "localhost", 8080, "installed", "st62").state, "stopped")
+                ownership.return_value = True
+                health.return_value["profile_id"] = "other"
+                self.assertNotEqual(collect_status(base, "localhost", 8080, "installed", "st62").state, "running")
+
     def test_running_process_with_unreachable_service_is_not_shown_as_healthy(self):
         with (
             tempfile.TemporaryDirectory() as folder,

@@ -14,7 +14,7 @@ from pathlib import Path
 from urllib.parse import urlparse, urlunparse
 
 from config import WEBAPP_HOST, WEBAPP_PORT, WEBAPP_URL
-from services.process_control import ProcessLock, is_process_running as _is_running, recorded_process_identity
+from services.process_control import ProcessLock, is_process_running as _is_running, recorded_process_identity, is_direct_child
 from version import __version__
 
 try:
@@ -109,18 +109,21 @@ def get_bot_status() -> tuple[str, str]:
         alive = bool(pid and _is_running(pid) and ownership is not False)
         health = read_health(WEBAPP_HOST, port) if alive else {}
         identity_matches = health.get("profile_id") == profile.id
-        if profile.legacy and health.get("profile_id") is None:
+        endpoint_pid = health.get("pid")
+        verified_endpoint = bool(ownership is True and isinstance(endpoint_pid, int)
+                                 and (endpoint_pid == pid or is_direct_child(endpoint_pid, pid)))
+        if health.get("profile_id") is None and (profile.legacy or verified_endpoint):
             identity_matches = True
         if health.get("profile_id") is not None and not identity_matches and ownership is not True:
             alive = False
-        healthy = (identity_matches and health.get("pid") == pid
+        healthy = (identity_matches and (health.get("pid") == pid or verified_endpoint)
                    and health.get("polling_ready", True) and health.get("ok") is True)
         state = "running" if alive and healthy else "starting" if alive else "stopped"
         states.append(state)
-        label = {"running": "????????", "starting": "???????????", "stopped": "??????????"}[state]
+        label = {"running": "работает", "starting": "запускается", "stopped": "остановлен"}[state]
         lines.append(f"{profile.name}: {label}")
     state = "starting" if "starting" in states else "running" if "running" in states else "stopped"
-    return state, "\n".join(lines) or "??? ?? ???????"
+    return state, "\n".join(lines) or "Боты не добавлены"
 
 
 def _load_font(size: int):
@@ -201,10 +204,8 @@ class BotTray:
             print(f"Tray icon unavailable: {TRAY_IMPORT_ERROR}", file=sys.stderr)
             return 1
 
-        existing_pid = _read_int(TRAY_PID_FILE)
-        if existing_pid and existing_pid != os.getpid() and _is_running(existing_pid):
-            return 0
-
+        # The OS lock above owns single-instance detection. A Windows venv
+        # launcher has a different PID from this worker and must not reject it.
         _write_tray_pid()
         self.last_status, self.last_tooltip = get_bot_status()
         self.icon = pystray.Icon(

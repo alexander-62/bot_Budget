@@ -16,6 +16,10 @@ class RegistrySafetyTests(unittest.TestCase):
         guard = patch.object(Path, "exists", lambda path: False if path.name == ".env" else original(path))
         guard.start()
         self.addCleanup(guard.stop)
+        # Import a generated legacy config before fake crypto is installed.
+        # A migrated local personal profile must never be decrypted by a test.
+        with patch.object(profiles, "get_profile", return_value=profiles.BotProfile("personal", "Personal", "", legacy=True)):
+            __import__("config")
         crypto = patch("services.profile_secrets._crypt", side_effect=lambda data, **kwargs: data[::-1])
         crypto.start()
         self.addCleanup(crypto.stop)

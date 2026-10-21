@@ -6,7 +6,7 @@ from pathlib import Path
 import time
 
 # Import config before aiogram so local secrets.py cannot shadow stdlib secrets.
-from config import BOT_TOKEN, WEBAPP_HOST, WEBAPP_PORT, PROFILE_RUNTIME_DIR
+from config import BOT_TOKEN, WEBAPP_HOST, WEBAPP_PORT, PROFILE_RUNTIME_DIR, PROFILE_ID
 from aiohttp import web
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
@@ -69,6 +69,7 @@ def create_web_app() -> web.Application:
         return web.json_response({
             "ok": True,
             "pid": os.getpid(),
+            "profile_id": PROFILE_ID,
             "version": __version__,
             "uptime_seconds": int(time.monotonic() - started_at),
             "polling_ready": app[RUNTIME_STATE_KEY]["polling_ready"],

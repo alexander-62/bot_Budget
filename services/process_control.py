@@ -160,3 +160,34 @@ def recorded_process_identity(runtime_dir: Path, pid: int, profile_id: str) -> b
         return False
     current = process_birth_identity(pid)
     return current == record["birth"] if current is not None else None
+
+
+def is_direct_child(pid: int, parent_pid: int) -> bool:
+    """Check the Windows venv launcher relationship without trusting HTTP alone."""
+    if not IS_WINDOWS or pid <= 0 or parent_pid <= 0 or pid == parent_pid:
+        return False
+    import ctypes
+    from ctypes import wintypes
+
+    class ProcessBasicInformation(ctypes.Structure):
+        _fields_ = [
+            ("reserved1", ctypes.c_void_p), ("peb", ctypes.c_void_p),
+            ("reserved2", ctypes.c_void_p * 2),
+            ("pid", ctypes.c_size_t), ("parent_pid", ctypes.c_size_t),
+        ]
+
+    kernel32 = _windows_kernel32()
+    handle = kernel32.OpenProcess(0x1000, False, pid)
+    if not handle:
+        return False
+    try:
+        query = ctypes.WinDLL("ntdll").NtQueryInformationProcess
+        query.argtypes = (wintypes.HANDLE, wintypes.ULONG, ctypes.c_void_p,
+                          wintypes.ULONG, ctypes.c_void_p)
+        query.restype = wintypes.LONG
+        info = ProcessBasicInformation()
+        return (query(handle, 0, ctypes.byref(info), ctypes.sizeof(info), None) == 0
+                and info.pid == pid and info.parent_pid == parent_pid
+                and is_process_running(parent_pid))
+    finally:
+        kernel32.CloseHandle(handle)

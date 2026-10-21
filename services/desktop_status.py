@@ -9,7 +9,7 @@ import time
 from urllib.error import HTTPError
 import urllib.request
 
-from services.process_control import is_process_running, recorded_process_identity
+from services.process_control import is_direct_child, is_process_running, recorded_process_identity
 
 
 @dataclass(frozen=True)
@@ -85,6 +85,16 @@ def collect_status(base_dir: Path, host: str, default_port: int, installed_versi
     # A port can be reused by another profile or application. Never borrow its
     # PID/version/uptime, even when the selected worker's PID file is absent.
     identity = health.get("profile_id")
+    # Windows venv python.exe can stay alive as a launcher while its child
+    # serves HTTP. Keep the recorded launcher's PID for process controls, but
+    # accept readiness only after verifying ownership and the OS parent link.
+    endpoint_pid = health.get("pid")
+    if (stored_pid and isinstance(endpoint_pid, int)
+            and identity in (None, profile_id)
+            and recorded_process_identity(base_dir, stored_pid, profile_id) is True
+            and (endpoint_pid == stored_pid or is_direct_child(endpoint_pid, stored_pid))):
+        identity = profile_id
+        health = dict(health, pid=stored_pid, profile_id=profile_id)
     foreign_health = bool(identity is not None and (identity != profile_id or (stored_pid and health.get("pid") != stored_pid)))
     if identity != profile_id and not (identity is None and profile.legacy):
         health = {}

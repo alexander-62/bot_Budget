@@ -75,7 +75,7 @@ class ProfileUITests(unittest.TestCase):
                 self.assertEqual(panel.selected_profile.id, "third")
                 self.assertIsNone(panel._last_status)
                 self.assertEqual(panel.action_buttons["start"].cget("state"), "disabled")
-                self.assertEqual(submit.call_args.args[0], ("status", 1))
+                self.assertEqual(submit.call_args.args[0], ("dashboard", 1))
             finally:
                 for callback in panel.tk.call("after", "info"):
                     panel.after_cancel(callback)

@@ -27,12 +27,19 @@ class BotProfile:
     legacy: bool = False
     track_money_source: bool = False
     image_file: str = ""
+    managed_settings: bool = False
+
+    @property
+    def uses_legacy_config(self) -> bool:
+        return self.legacy and not self.managed_settings
 
     def runtime_dir(self, base_dir: Path = BASE_DIR) -> Path:
         return Path(base_dir) if self.legacy else Path(base_dir) / ".runtime" / self.id
 
 
 def _validate(profile: BotProfile) -> None:
+    if type(profile.managed_settings) is not bool:
+        raise ValueError("managed_settings must be a boolean.")
     if not isinstance(profile.image_file, str):
         raise ValueError("image_file must be a string.")
     if type(profile.track_money_source) is not bool:
@@ -46,7 +53,7 @@ def _validate(profile: BotProfile) -> None:
     ZoneInfo(profile.timezone)
     if profile.legacy and profile.id != "personal":
         raise ValueError("Only the personal profile can use legacy configuration.")
-    if not profile.legacy and not profile.spreadsheet_id.strip():
+    if not profile.uses_legacy_config and not profile.spreadsheet_id.strip():
         raise ValueError("Profile spreadsheet is required.")
 
 
@@ -76,7 +83,7 @@ def get_profile(profile_id: str, base_dir: Path = BASE_DIR) -> BotProfile:
 
 
 def get_profile_token(profile: BotProfile, base_dir: Path = BASE_DIR) -> str:
-    if profile.legacy:
+    if profile.uses_legacy_config:
         # Lazy import avoids a config/profile import cycle.
         import config
         if not config.PROFILE.legacy:
@@ -122,7 +129,7 @@ def _save_locked(profile: BotProfile, token: str | None, base_dir: Path, *, edit
         if other.id == profile.id:
             continue
         other_spreadsheet = other.spreadsheet_id
-        if other.legacy:
+        if other.uses_legacy_config:
             import config
             if config.PROFILE.legacy:
                 other_spreadsheet = config.SPREADSHEET_ID
@@ -132,9 +139,9 @@ def _save_locked(profile: BotProfile, token: str | None, base_dir: Path, *, edit
             other_token = get_profile_token(other, base_dir)
             if other_token and identity == other_token.split(":", 1)[0]:
                 raise ValueError("This Telegram bot is already assigned to another profile.")
-    if not profile.legacy and token is None and not load_token(profile.id, base_dir):
+    if not profile.uses_legacy_config and token is None and not load_token(profile.id, base_dir):
         raise ValueError("A protected Telegram token is required.")
-    if token is not None and profile.legacy:
+    if token is not None and profile.uses_legacy_config:
         raise ValueError("Legacy token is managed by existing environment configuration.")
     values = [profile if p.id == profile.id else p for p in profiles]
     if existing is None:
