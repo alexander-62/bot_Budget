@@ -9,6 +9,9 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from pathlib import Path
+from zoneinfo import ZoneInfo
+
+from config import BOT_TIMEZONE, PROFILE_ID, PROFILE_RUNTIME_DIR
 
 from aiogram import Bot, Router, types
 from aiogram.filters import CommandStart
@@ -26,9 +29,9 @@ from services.google_sheets import get_spreadsheet_url
 from version import __version__
 
 BASE_DIR = Path(__file__).resolve().parents[1]
-RESTART_NOTICE_FILE = BASE_DIR / ".restart_notice.json"
-BOT_LOG_FILE = BASE_DIR / "bot.log"
-LOG_EXPORT_DIR = BASE_DIR / ".log_exports"
+RESTART_NOTICE_FILE = PROFILE_RUNTIME_DIR / ".restart_notice.json"
+BOT_LOG_FILE = PROFILE_RUNTIME_DIR / "bot.log"
+LOG_EXPORT_DIR = PROFILE_RUNTIME_DIR / ".log_exports"
 
 router = Router()
 _restart_in_progress = False
@@ -43,39 +46,17 @@ class GitPullResult:
     log_message: str = ""
 
 
-def _parse_sheet_number(value: str) -> Decimal:
-    normalized = value.replace("\xa0", "").replace(" ", "").replace("€", "").replace(",", ".")
-    try:
-        return Decimal(normalized)
-    except InvalidOperation as exc:
-        raise ValueError(f"Некорректное число: {value}") from exc
-
-
-def _format_eur_rounded(value: str) -> str:
-    rounded = _parse_sheet_number(value).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
-    return f"{int(rounded):,}".replace(",", " ")
-
-
-def _format_money_or_dash(value: str) -> str:
-    value = value.strip()
-    if not value or value == "—" or value == "не указан":
-        return "—"
-    return f"{_format_eur_rounded(value)} €"
-
-
-def _format_remaining_with_alert(value: str) -> str:
-    value = value.strip()
-    if not value or value == "—" or value == "не указан":
-        return "—"
-
-    dec_value = _parse_sheet_number(value).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
-    formatted = f"{int(dec_value):,}".replace(",", " ") + " €"
-    if dec_value < 0:
-        return f"{formatted} ⚠️"
-    return formatted
-
+from services.money import (
+    parse_sheet_number as _parse_sheet_number,
+    format_number as _format_eur_rounded,
+    format_money_or_dash as _format_money_or_dash,
+    format_remaining_with_alert as _format_remaining_with_alert,
+    currency_symbol,
+    format_money_exact,
+)
 
 def _write_restart_notice(chat_id: int, username: str | None) -> None:
+    RESTART_NOTICE_FILE.parent.mkdir(parents=True, exist_ok=True)
     RESTART_NOTICE_FILE.write_text(
         json.dumps(
             {
@@ -89,7 +70,7 @@ def _write_restart_notice(chat_id: int, username: str | None) -> None:
 
 
 def _create_log_export_snapshot() -> Path:
-    LOG_EXPORT_DIR.mkdir(exist_ok=True)
+    LOG_EXPORT_DIR.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     export_path = LOG_EXPORT_DIR / f"bot-log-{timestamp}.txt"
     with BOT_LOG_FILE.open("rb") as source, export_path.open("wb") as target:
@@ -119,16 +100,16 @@ async def _send_limits(target_message: types.Message) -> None:
         await target_message.answer("Не удалось загрузить лимиты. Попробуйте позже.")
         return
 
-    today = date.today()
+    today = datetime.now(ZoneInfo(BOT_TIMEZONE)).date()
     days_left = monthrange(today.year, today.month)[1] - today.day
 
     text = (
         "📌 Лимит:\n"
-        f"<b>{limit_fmt} €</b>\n\n"
+        f"<b>{limit_fmt} {currency_symbol()}</b>\n\n"
         "💸 Потрачено:\n"
-        f"<b>{spent_fmt} €</b>\n\n"
+        f"<b>{spent_fmt} {currency_symbol()}</b>\n\n"
         "💰 Осталось:\n"
-        f"<b>{remaining_fmt} €</b>\n\n"
+        f"<b>{remaining_fmt} {currency_symbol()}</b>\n\n"
         "📅 Дней до конца месяца:\n"
         f"<b>{days_left}</b>"
     )
@@ -152,7 +133,7 @@ async def _send_recent_expenses(target_message: types.Message, limit: int = 5) -
         recent,
         start=1,
     ):
-        lines.append(f"{idx}. <b>{date_value}</b> | <b>{amount_value}</b> | <b>{subcategory_value}</b>")
+        lines.append(f"{idx}. <b>{date_value}</b> | <b>{format_money_exact(amount_value)}</b> | <b>{subcategory_value}</b>")
         details = [f"Пользователь: {username_value}"]
         if category_value:
             details.append(f"Категория: {category_value}")
@@ -173,7 +154,7 @@ async def _restart_process_after_delay(delay_seconds: int = 5) -> None:
     helper_code = (
         "import subprocess, sys, time\n"
         f"time.sleep({delay_seconds})\n"
-        f"subprocess.run([sys.executable, 'manage_bot.py', 'start'], cwd={json.dumps(str(BASE_DIR))}, check=False)\n"
+        f"subprocess.run([sys.executable, 'manage_bot.py', 'start', '--profile', {PROFILE_ID!r}], cwd={str(BASE_DIR)!r}, check=False)\n"
     )
     kwargs = {
         "cwd": str(BASE_DIR),

@@ -56,3 +56,25 @@ def find_worksheet_case_insensitive(
             _worksheet_cache[target] = ws
             return ws
     raise ValueError(f"Лист '{worksheet_name}' не найден в таблице")
+
+
+def open_profile_spreadsheet(profile, credentials_path):
+    """Open an explicit profile without touching the running bot's caches."""
+    return gspread.service_account(filename=str(credentials_path)).open_by_key(profile.spreadsheet_id)
+
+
+def validate_profile_connection(profile, credentials_path):
+    # Import lazily: startup validation itself uses the cached adapter above.
+    from services.startup_validation import _WORKSHEET_RULES, validate_worksheet_header
+    spreadsheet = open_profile_spreadsheet(profile, credentials_path)
+    worksheets = {normalize_text(ws.title): ws for ws in spreadsheet.worksheets()}
+    for rule in _WORKSHEET_RULES:
+        worksheet = worksheets.get(normalize_text(rule.name))
+        if worksheet is None:
+            raise ValueError(f"Не найден лист «{rule.name}». Создайте его по шаблону.")
+        if rule.required_headers:
+            try:
+                validate_worksheet_header(rule, worksheet.row_values(1), legacy=profile.legacy)
+            except ValueError:
+                raise ValueError(f"Лист «{rule.name}»: проверьте обязательные заголовки и порядок столбцов по шаблону.") from None
+    return True

@@ -53,6 +53,11 @@ def _load_env_file(path: Path = ENV_FILE) -> dict[str, str]:
     return values
 
 
+from services.bot_profiles import BotProfile, get_profile
+
+PROFILE_ID = os.getenv("BOT_BUDGET_PROFILE", "personal")
+PROFILE = (get_profile(PROFILE_ID, BASE_DIR) if "BOT_BUDGET_PROFILE" in os.environ
+           else BotProfile("personal", "Личный бюджет", "", legacy=True))
 _ENV_VALUES = _load_env_file()
 
 
@@ -72,12 +77,22 @@ def _get_config_value(name: str, default: str = "") -> str:
     return default
 
 
-BOT_TOKEN = _get_config_value("BOT_TOKEN")
+BOT_TOKEN = _get_config_value("BOT_TOKEN") if PROFILE.legacy else ""
 GOOGLE_CREDENTIALS_FILE = _get_config_value("GOOGLE_CREDENTIALS_FILE")
-SPREADSHEET_ID = _get_config_value("SPREADSHEET_ID")
+SPREADSHEET_ID = _get_config_value("SPREADSHEET_ID") if PROFILE.legacy else ""
 WEBAPP_HOST = _get_config_value("WEBAPP_HOST", "127.0.0.1")
 WEBAPP_PORT = int(_get_config_value("WEBAPP_PORT", "8080"))
 WEBAPP_URL = _get_config_value("WEBAPP_URL", f"http://{WEBAPP_HOST}:{WEBAPP_PORT}/webapp")
+CURRENCY = PROFILE.currency
+BOT_TIMEZONE = PROFILE.timezone
+PROFILE_RUNTIME_DIR = PROFILE.runtime_dir(BASE_DIR)
+if not PROFILE.legacy:
+    from services.profile_secrets import load_token
+    BOT_TOKEN = load_token(PROFILE.id, BASE_DIR)
+    SPREADSHEET_ID = PROFILE.spreadsheet_id
+    GOOGLE_CREDENTIALS_FILE = PROFILE.credentials_file or GOOGLE_CREDENTIALS_FILE
+    # Each additional process gets a port from its manager, never the personal port.
+    WEBAPP_PORT = int(os.getenv("BOT_BUDGET_WEBAPP_PORT", "0"))
 
 
 def get_credentials_path() -> Path:

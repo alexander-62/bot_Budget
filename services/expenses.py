@@ -3,10 +3,12 @@ from datetime import datetime
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 import re
 from uuid import uuid4
+from zoneinfo import ZoneInfo
 
 import gspread
 
 from constants import EXPENSES_SHEET_NAME
+from config import BOT_TIMEZONE
 from services.budget import clear_budget_snapshot_cache, get_current_month_key
 from services.google_sheets import find_worksheet_case_insensitive, get_spreadsheet
 
@@ -117,8 +119,9 @@ def write_expense(
 ) -> SavedExpense:
     spreadsheet = get_spreadsheet()
     worksheet = find_worksheet_case_insensitive(spreadsheet, EXPENSES_SHEET_NAME)
-    today = datetime.now().strftime("%Y-%m-%d")
-    month_key = get_current_month_key()
+    current = datetime.now(ZoneInfo(BOT_TIMEZONE))
+    today = current.strftime("%Y-%m-%d")
+    month_key = get_current_month_key(current.date())
     numeric_amount = float(amount.replace(" ", "").replace(",", "."))
     expense_id = uuid4().hex
 

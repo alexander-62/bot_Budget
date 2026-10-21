@@ -56,6 +56,9 @@ credentials.json
 .tray.pid
 .bot.lock
 .bot-start.lock
+.ports-start.lock
+.bot.identity.json
+.profiles.lock
 .tray.lock
 .tray-start.lock
 .desktop.lock
@@ -73,3 +76,10 @@ publication/
 *_write_test.tmp
 * (2).py
 * (2).md
+
+# Local budget profiles and protected secrets
+profiles.json
+.profile-secrets/
+.runtime/
+.profiles-*.tmp
+.profiles.lock

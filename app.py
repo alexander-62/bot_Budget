@@ -6,7 +6,7 @@ from pathlib import Path
 import time
 
 # Import config before aiogram so local secrets.py cannot shadow stdlib secrets.
-from config import BOT_TOKEN, WEBAPP_HOST, WEBAPP_PORT
+from config import BOT_TOKEN, WEBAPP_HOST, WEBAPP_PORT, PROFILE_RUNTIME_DIR
 from aiohttp import web
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
@@ -24,7 +24,7 @@ from services.startup_validation import StartupValidationError, validate_startup
 from services.process_control import ProcessLock
 from version import __version__
 
-RESTART_NOTICE_FILE = Path(__file__).resolve().parent / ".restart_notice.json"
+RESTART_NOTICE_FILE = PROFILE_RUNTIME_DIR / ".restart_notice.json"
 RUNTIME_STATE_KEY = web.AppKey("runtime_state", dict)
 
 
@@ -155,7 +155,8 @@ async def notify_restart_complete(bot: Bot) -> None:
 
 async def main() -> None:
     setup_logging()
-    runtime_lock = ProcessLock(Path(__file__).resolve().parent / ".bot.lock")
+    PROFILE_RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
+    runtime_lock = ProcessLock(PROFILE_RUNTIME_DIR / ".bot.lock")
     if not runtime_lock.acquire():
         logging.warning("Бот уже запущен. Второй экземпляр не будет запущен.")
         return

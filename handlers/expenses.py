@@ -15,7 +15,8 @@ from keyboards.expenses import (
 from keyboards.limits import build_category_actions_keyboard
 from keyboards.main import build_main_menu
 from services.async_tools import run_blocking
-from services.access import check_access_callback, check_access_message, is_allowed_username
+from services.access import check_access_callback, check_access_message, is_allowed_username, is_allowed_user
+from config import PROFILE
 from services.budget import get_budget_limits, get_category_details, get_subcategories_for_category
 from services.expenses import (
     StaleExpenseError,
@@ -52,37 +53,13 @@ async def _safe_delete_prompt(bot, chat_id: int | None, message_id: int | None) 
         logging.exception("Не удалось удалить сообщение шага")
 
 
-def _parse_sheet_number(value: str) -> Decimal:
-    normalized = value.replace("\xa0", "").replace(" ", "").replace("€", "").replace(",", ".")
-    try:
-        return Decimal(normalized)
-    except InvalidOperation as exc:
-        raise ValueError(f"Некорректное число: {value}") from exc
-
-
-def _format_eur_rounded(value: str) -> str:
-    rounded = _parse_sheet_number(value).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
-    return f"{int(rounded):,}".replace(",", " ")
-
-
-def _format_money_or_dash(value: str) -> str:
-    value = value.strip()
-    if not value or value == "—" or value == "не указан":
-        return "—"
-    return f"{_format_eur_rounded(value)} €"
-
-
-def _format_remaining_with_alert(value: str) -> str:
-    value = value.strip()
-    if not value or value == "—" or value == "не указан":
-        return "—"
-
-    dec_value = _parse_sheet_number(value).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
-    formatted = f"{int(dec_value):,}".replace(",", " ") + " €"
-    if dec_value < 0:
-        return f"{formatted} ⚠️"
-    return formatted
-
+from services.money import (
+    parse_sheet_number as _parse_sheet_number,
+    format_number as _format_eur_rounded,
+    format_money_or_dash as _format_money_or_dash,
+    format_remaining_with_alert as _format_remaining_with_alert,
+    currency_symbol,
+)
 
 async def _show_category_card(message_target: types.Message, category_name: str) -> None:
     if not category_name:
@@ -199,7 +176,10 @@ async def _finalize_expense(
         return
 
     try:
-        is_allowed, reason = await run_blocking(is_allowed_username, username)
+        if PROFILE.legacy:
+            is_allowed, reason = await run_blocking(is_allowed_username, username)
+        else:
+            is_allowed, reason = await run_blocking(is_allowed_user, user_id, username)
     except Exception:
         logging.exception("Ошибка повторной проверки доступа перед записью траты")
         await message_target.answer("Ошибка проверки доступа. Попробуйте позже.")
@@ -217,7 +197,7 @@ async def _finalize_expense(
     subcategory = session.subcategory or ""
     amount = session.amount or ""
     final_comment = (session.comment or "") if comment is None else comment
-    actor_username = f"@{username}" if username else ""
+    actor_username = f"@{username}" if username else ("" if PROFILE.legacy else str(user_id))
 
     try:
         saved_expense = await run_blocking(
@@ -241,7 +221,7 @@ async def _finalize_expense(
         "Трата добавлена.",
         f"Категория: {category}",
         f"Подкатегория: {subcategory}",
-        f"Сумма: {amount}",
+        f"Сумма: {amount} {currency_symbol()}",
     ]
     if final_comment:
         summary.append(f"Комментарий: {final_comment}")
@@ -303,7 +283,7 @@ async def _update_saved_expense(
                 "Трата обновлена.",
                 f"Категория: {saved_expense.category}",
                 f"Подкатегория: {saved_expense.subcategory}",
-                f"Сумма: {saved_expense.amount}",
+                f"Сумма: {saved_expense.amount} {currency_symbol()}",
                 *( [f"Комментарий: {saved_expense.comment}"] if saved_expense.comment else [] ),
             ]
         ),

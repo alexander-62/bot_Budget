@@ -4,6 +4,8 @@ import time
 
 from aiogram import types
 
+from config import PROFILE
+
 from constants import ACCESS_CACHE_TTL_SECONDS, USERS_SHEET_NAME
 from services.google_sheets import (
     find_worksheet_case_insensitive,
@@ -168,16 +170,27 @@ def is_allowed_username(username: str | None) -> tuple[bool, str | None]:
     return True, None
 
 
+def is_allowed_user(user_id: int | None, username: str | None = None) -> tuple[bool, str | None]:
+    if PROFILE.legacy:
+        return is_allowed_username(username)
+    if user_id is not None and user_id > 0 and user_id in get_allowed_chat_ids():
+        return True, None
+    return False, "user_id_not_found"
+
+
 async def check_access_message(message: types.Message) -> bool:
     username = message.from_user.username if message.from_user else None
     user_id = message.from_user.id if message.from_user else None
 
     try:
-        is_allowed, reason = await asyncio.to_thread(is_allowed_username, username)
+        is_allowed, reason = await asyncio.to_thread(is_allowed_user, user_id, username)
     except Exception:
         logging.exception("Не удалось загрузить список пользователей из Google Sheets")
         await message.answer("Ошибка проверки доступа. Попробуйте позже.")
         return False
+
+    if is_allowed and not PROFILE.legacy:
+        return True
 
     if is_allowed:
         try:
@@ -185,6 +198,10 @@ async def check_access_message(message: types.Message) -> bool:
         except Exception:
             logging.exception("Не удалось синхронизировать chat_id/user_id for username=%s", username)
         return True
+
+    if reason == "user_id_not_found":
+        await message.answer("Доступ запрещен. Ваш user_id не найден во вкладке Users этого бюджета.")
+        return False
 
     if reason == "empty_username":
         await message.answer(
@@ -202,11 +219,14 @@ async def check_access_callback(callback: types.CallbackQuery) -> bool:
     user_id = callback.from_user.id if callback.from_user else None
 
     try:
-        is_allowed, reason = await asyncio.to_thread(is_allowed_username, username)
+        is_allowed, reason = await asyncio.to_thread(is_allowed_user, user_id, username)
     except Exception:
         logging.exception("Не удалось загрузить список пользователей из Google Sheets")
         await callback.answer("Ошибка проверки доступа. Попробуйте позже.", show_alert=True)
         return False
+
+    if is_allowed and not PROFILE.legacy:
+        return True
 
     if is_allowed:
         try:

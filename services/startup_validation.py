@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from config import BOT_TOKEN, SPREADSHEET_ID, WEBAPP_HOST, WEBAPP_PORT, get_credentials_path
+from config import BOT_TOKEN, SPREADSHEET_ID, WEBAPP_HOST, WEBAPP_PORT, PROFILE, get_credentials_path
 from constants import (
     CATEGORIES_SHEET_NAME,
     EXPENSES_SHEET_NAME,
@@ -65,9 +65,20 @@ def _validate_google_sheets_schema() -> None:
         if not rows:
             raise StartupValidationError(f"Worksheet '{rule.name}' is empty.")
 
-        header = tuple(normalize_text(value) for value in rows[0])
-        for required in rule.required_headers:
-            if required not in header:
-                raise StartupValidationError(
-                    f"Worksheet '{rule.name}' is missing required header '{required}'."
-                )
+        try:
+            validate_worksheet_header(rule, rows[0], legacy=PROFILE.legacy)
+        except ValueError as error:
+            raise StartupValidationError(str(error)) from None
+
+
+def validate_worksheet_header(rule: WorksheetRule, values, *, legacy: bool) -> None:
+    """Position-based services require header order, not merely presence."""
+    header = tuple(normalize_text(value) for value in values)
+    expected = rule.required_headers
+    if rule.name == EXPENSES_SHEET_NAME and not legacy:
+        expected += ("комментарий", "expense_id")
+    for index, required in enumerate(expected):
+        if required not in header:
+            raise ValueError(f"Worksheet '{rule.name}' is missing required header '{required}'.")
+        if index >= len(header) or header[index] != required:
+            raise ValueError(f"Лист «{rule.name}»: столбец {index + 1} должен называться «{required}».")

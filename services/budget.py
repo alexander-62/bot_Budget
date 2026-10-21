@@ -2,9 +2,12 @@ from __future__ import annotations
 
 from collections import OrderedDict
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from time import monotonic
+from zoneinfo import ZoneInfo
+
+from config import BOT_TIMEZONE
 
 from constants import CATEGORIES_SHEET_NAME, EXPENSES_SHEET_NAME, LIMITS_SHEET_NAME
 from services.google_sheets import (
@@ -39,7 +42,7 @@ _budget_snapshot_cache: dict[str, BudgetSnapshot] = {}
 
 
 def get_current_month_key(today: date | None = None) -> str:
-    current = today or date.today()
+    current = today or datetime.now(ZoneInfo(BOT_TIMEZONE)).date()
     return f"{current.year:04d}-{current.month:02d}"
 
 

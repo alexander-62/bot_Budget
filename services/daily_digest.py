@@ -14,6 +14,8 @@ from constants import (
     EXPENSES_SHEET_NAME,
     USERS_SHEET_NAME,
 )
+from config import BOT_TIMEZONE
+from services.money import format_money, parse_sheet_number
 from services.google_sheets import find_worksheet_case_insensitive, get_spreadsheet, normalize_text
 
 
@@ -54,8 +56,6 @@ def get_digest_recipients() -> list[DigestRecipient]:
     recipients: list[DigestRecipient] = []
     for row_number, row in enumerate(rows[1:], start=2):
         username = _cell(row, username_idx).strip()
-        if not username:
-            continue
 
         chat_id_raw = _cell(row, chat_id_idx).strip()
         if not chat_id_raw:
@@ -149,13 +149,13 @@ def format_daily_digest_message(summary: DailyDigestSummary) -> str:
 
 
 def get_current_digest_date() -> date:
-    return datetime.now(ZoneInfo(DAILY_DIGEST_TIMEZONE)).date()
+    return datetime.now(ZoneInfo(BOT_TIMEZONE)).date()
 
 
 def is_digest_due(now: datetime | None = None) -> bool:
-    current = now or datetime.now(ZoneInfo(DAILY_DIGEST_TIMEZONE))
+    current = now or datetime.now(ZoneInfo(BOT_TIMEZONE))
     if current.tzinfo is None:
-        current = current.replace(tzinfo=ZoneInfo(DAILY_DIGEST_TIMEZONE))
+        current = current.replace(tzinfo=ZoneInfo(BOT_TIMEZONE))
     return current.timetz().replace(tzinfo=None) >= _parse_digest_time(DAILY_DIGEST_TIME)
 
 
@@ -209,26 +209,15 @@ def _parse_sheet_date(raw_value: str) -> date | None:
 
 
 def _parse_sheet_amount(raw_value: str) -> Decimal | None:
-    normalized = (
-        raw_value.strip()
-        .replace("\xa0", "")
-        .replace(" ", "")
-        .replace("€", "")
-        .replace(",", ".")
-    )
-    if not normalized:
-        return None
-
     try:
-        return Decimal(normalized).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-    except InvalidOperation:
-        logging.warning("Некорректная сумма в листе трат для дайджеста: %r", raw_value)
+        return parse_sheet_number(raw_value).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    except ValueError:
         return None
 
 
 def _format_money(value: Decimal) -> str:
-    rounded = value.quantize(Decimal("1"), rounding=ROUND_HALF_UP)
-    return f"{int(rounded):,}".replace(",", " ") + " €"
+    return format_money(value)
+
 
 
 def _parse_digest_time(value: str) -> time:
