@@ -4,7 +4,7 @@ milestone: v1.6.0
 milestone_name: Multiple Budget Bots
 status: implementation_complete
 last_updated: "2026-10-21T15:14:29.102Z"
-last_activity: 2026-10-21 - Phase 14 complete; v1.6.2 per-bot panel pictures; tests passed.
+last_activity: 2026-10-21 - Clipboard and Sheets diagnostics hotfix v1.6.3; 130 tests / 28 modules pass.
 progress:
   total_phases: 6
   completed_phases: 6
@@ -20,7 +20,7 @@ progress:
 Phase: 14 - Per-bot profile pictures complete
 Plan: 14-01 complete
 Status: Implementation complete; remote update and real business setup pending
-Last activity: 2026-10-21 - Panel pictures v1.6.2; 122 tests/27 modules plus final 18 UI checks passed.
+Last activity: 2026-10-21 - Desktop form clipboard fix and safe Sheets diagnostics v1.6.3.
 
 ## Project Reference
 
@@ -78,3 +78,11 @@ Operator opens `bot.bat ui`, adds new business token and dedicated Sheet, select
 - Added via GSD phase add; user confirmed pictures only in panel. Completed select/reset, managed assets and safe profile routing.
 - Phase 13 already committed at 16dd16f; picture feature saved separately. No actual image/profile/API changes or GitHub push.
 - Next: after remote update, choose each image from its profile card on the panel computer.
+
+## Quick fix - desktop clipboard, v1.6.3
+
+- User reported paste failure in deployed Windows add-bot form. Added layout-independent Windows Ctrl editing shortcuts, Shift+Insert and context menu.
+- Empty/unavailable clipboard keeps selected text; readonly IDs remain protected; masked token stays masked.
+- Sheets diagnostics distinguish missing/invalid keys, inaccessible tables, disabled APIs and connectivity without exposing raw errors. Shared-key fallback is documented and tested.
+- Full suite: 130 tests/28 isolated modules pass, publication findings 0. Tests use generated clipboard data and never access the actual user clipboard.
+- Plan/report: quick/20261021-desktop-clipboard/. Delivery to origin/main follows the existing authorized remote update workflow; operator must reopen the updated panel.

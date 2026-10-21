@@ -11,7 +11,7 @@ from threading import Event
 import subprocess
 import sys
 import webbrowser
-from tkinter import filedialog
+from tkinter import filedialog, Menu, TclError
 
 from config import WEBAPP_HOST, WEBAPP_PORT
 import customtkinter as ctk
@@ -83,6 +83,76 @@ def save_profile_picture(profile_id, path, base_dir=None):
     base_dir = BASE_DIR if base_dir is None else base_dir
     image_file = import_profile_image(Path(path), base_dir) if path else ""
     return set_profile_image(profile_id, image_file, base_dir=base_dir)
+
+
+def _entry_edit_action(target, action):
+    """Handle explicit user edits without logging or retaining clipboard data."""
+    if target is None:
+        return "break"
+    try:
+        state = str(target.cget("state"))
+        if state == "disabled" or (state != "normal" and action in {"paste", "cut"}):
+            return "break"
+        if action == "paste":
+            # Read first: an unavailable/empty clipboard must not delete selection.
+            text = target.clipboard_get()
+            if text:
+                if target.selection_present():
+                    target.delete("sel.first", "sel.last")
+                target.insert("insert", text)
+                target.xview("insert")
+        elif action in {"copy", "cut", "all"}:
+            target.event_generate({"copy": "<<Copy>>", "cut": "<<Cut>>", "all": "<<SelectAll>>"}[action])
+    except TclError:
+        # Clipboard can be empty or contain a non-text format; keep the field.
+        pass
+    return "break"
+
+
+def _entry_edit_keypress(event):
+    state = int(event.state)
+    if state & (0x8 | 0x20000):  # Alt/AltGr is not a clipboard shortcut.
+        return None
+    if state & 0x4:
+        # Windows virtual key codes stay stable when English/Russian changes.
+        action = ({65: "all", 67: "copy", 86: "paste", 88: "cut"}.get(event.keycode)
+                  if os.name == "nt" else {"a": "all", "c": "copy", "v": "paste", "x": "cut"}.get(event.keysym.lower()))
+        if action:
+            return _entry_edit_action(event.widget, action)
+    elif state & 0x1 and event.keysym == "Insert":
+        return _entry_edit_action(event.widget, "paste")
+    return None
+
+
+def install_entry_editing(entry):
+    """CTkEntry.bind forwards to its native Entry before Tk class bindings."""
+    menu = Menu(entry, tearoff=False)
+    current = {"target": None}
+    for label, action in (("Вставить", "paste"), ("Копировать", "copy"),
+                          ("Вырезать", "cut"), ("Выделить всё", "all")):
+        menu.add_command(label=label, command=lambda action=action: _entry_edit_action(current["target"], action))
+
+    def popup(event, keyboard=False):
+        target = current["target"] = event.widget
+        target.focus_set()
+        state = str(target.cget("state"))
+        selected = bool(target.selection_present())
+        for index, enabled in enumerate((state == "normal", selected and state != "disabled",
+                                         selected and state == "normal", state != "disabled")):
+            menu.entryconfigure(index, state="normal" if enabled else "disabled")
+        x = target.winfo_rootx() + 12 if keyboard else event.x_root
+        y = target.winfo_rooty() + target.winfo_height() if keyboard else event.y_root
+        try:
+            menu.tk_popup(x, y)
+        finally:
+            menu.grab_release()
+        return "break"
+
+    entry.bind("<KeyPress>", _entry_edit_keypress, add="+")
+    entry.bind("<Button-3>", popup, add="+")
+    entry.bind("<Menu>", lambda event: popup(event, True), add="+")
+    entry.bind("<Shift-F10>", lambda event: popup(event, True), add="+")
+    return menu
 
 
 class BudgetPanel(ctk.CTk):
@@ -585,6 +655,7 @@ class BudgetPanel(ctk.CTk):
                 widget.insert(0, value)
                 if profile and key == "id":
                     widget.configure(state="disabled")
+                install_entry_editing(widget)
             widget.grid(row=row * 2 + 1, column=0, sticky="ew")
             fields[key] = widget
         source_tracking = ctk.BooleanVar(value=profile.track_money_source if profile else False)
