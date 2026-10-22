@@ -167,6 +167,26 @@ def save_validated_profile(candidate, original, token, cancelled):
     return result, None
 
 
+def profile_currency_operation(context, currency):
+    """Explicit profile I/O in the panel worker; never touches bot runtime caches."""
+    from config import get_credentials_path
+    from services.google_sheets import open_profile_spreadsheet
+    from services.budget_settings import read_settings, update_setting
+    profile = editable_profile(context["profile"])
+    credentials = Path(profile.credentials_file) if profile.credentials_file else get_credentials_path()
+    if not credentials.is_absolute():
+        credentials = BASE_DIR / credentials
+    try:
+        sheet = open_profile_spreadsheet(profile, credentials)
+        if currency is None:
+            settings = read_settings(sheet)
+            return context, settings, "Валюта из Google Sheets. Изменение применяется без перезапуска."
+        settings = update_setting(sheet, "currency", currency, expected=context["settings"].currency)
+        return context, settings, "Валюта сохранена в таблице. Суммы не пересчитывались."
+    except Exception:
+        return context, None, "Не удалось прочитать или сохранить валюту. Запустите обновлённого бота для переноса настроек и проверьте таблицу. Закройте и откройте это окно для повторной загрузки."
+
+
 def save_profile_picture(profile_id, path, base_dir=None):
     base_dir = BASE_DIR if base_dir is None else base_dir
     image_file = import_profile_image(Path(path), base_dir) if path else ""
@@ -484,7 +504,7 @@ class BudgetPanel(ctk.CTk):
             widgets["status"].configure(text="● " + text, text_color=color)
             info = self._dashboard_statuses.get(profile.id)
             uptime = " · В работе " + format_uptime(info.uptime_seconds) if info and info.pid else ""
-            widgets["meta"].configure(text=f"{profile.currency} · {profile.timezone}{uptime}")
+            widgets["meta"].configure(text=f"Валюта в таблице · {profile.timezone}{uptime}")
             expanded = self._expanded_profile == profile.id
             widgets["arrow"].configure(text="⌃" if expanded else "⌄")
             widgets["frame"].configure(border_color=ACCENT if expanded else BORDER)
@@ -656,6 +676,9 @@ class BudgetPanel(ctk.CTk):
                 kind, generation = kind
                 if generation != self._generation:
                     continue
+            if kind == "budget-currency":
+                self._finish_budget_currency(result, error)
+                continue
             if kind == "picture":
                 self._finish_picture_save(result, error)
                 continue
@@ -844,6 +867,44 @@ class BudgetPanel(ctk.CTk):
             return
         self._show_profile_editor(self.selected_profile)
 
+    def _show_budget_currency(self, profile):
+        existing = getattr(self, "_currency_editor", None)
+        if existing is not None and existing.winfo_exists():
+            existing.lift()
+            return
+        editor = self._currency_editor = ctk.CTkToplevel(self, fg_color=BG)
+        editor.title(f"Валюта бюджета — {profile.name}")
+        editor.geometry("460x290")
+        label = self._label(editor, "Загружаем валюту из таблицы…", 13, wraplength=410)
+        label.pack(padx=20, pady=16)
+        choice = ctk.CTkOptionMenu(editor, values=["EUR", "RUB"], state="disabled")
+        choice.pack(pady=8)
+        notice = self._label(editor, "Смена валюты меняет обозначение всех сумм, включая историю. Пересчёта по курсу не будет.", 13, wraplength=410)
+        notice.pack(padx=20, pady=12)
+        button = ctk.CTkButton(editor, text="Сохранить валюту без пересчёта", state="disabled")
+        button.pack(pady=8)
+        # Capture the target and dialog; changing the selected card cannot retarget I/O.
+        context = {"editor": editor, "profile": profile, "label": label, "choice": choice, "button": button, "settings": None}
+        self._currency_context = context
+        def save():
+            button.configure(state="disabled")
+            self._submit("budget-currency", profile_currency_operation, context, choice.get())
+        button.configure(command=save)
+        self._submit("budget-currency", profile_currency_operation, context, None)
+
+    def _finish_budget_currency(self, result, error):
+        if not result:
+            return
+        context, settings, message = result
+        if context is not getattr(self, "_currency_context", None) or not context["editor"].winfo_exists():
+            return
+        context["label"].configure(text=message)
+        if settings is not None:
+            context["settings"] = settings
+            context["choice"].set(settings.currency)
+            context["choice"].configure(state="normal")
+        context["button"].configure(state="normal" if context["settings"] is not None else "disabled")
+
     def _show_profile_editor(self, profile):
         if self._picture_busy:
             self.feedback.configure(text="Дождитесь сохранения картинки.", text_color=AMBER)
@@ -872,9 +933,11 @@ class BudgetPanel(ctk.CTk):
         fields = {}
         editable = editable_profile(profile)
         definitions = [("name", "Название"), ("id", "ID профиля (строчная латиница, цифры, - и _)"),
-                       ("spreadsheet_id", "Ссылка или ID Google Sheets"), ("currency", "Валюта"),
+                       ("spreadsheet_id", "Ссылка или ID Google Sheets"),
                        ("timezone", "Часовой пояс"), ("credentials_file", "Путь к ключу Google (пусто — общий ключ)"),
                        ("token", "Токен Telegram (пусто — сохранить текущий)" if profile else "Токен Telegram из BotFather")]
+        if profile is None:
+            definitions.insert(3, ("currency", "Начальная валюта (будет перенесена в таблицу)"))
         for row, (key, label) in enumerate(definitions):
             self._label(form, label, 13).grid(row=row * 2, column=0, sticky="w", pady=(10, 4))
             if key == "currency":
@@ -889,6 +952,8 @@ class BudgetPanel(ctk.CTk):
                 install_entry_editing(widget)
             widget.grid(row=row * 2 + 1, column=0, sticky="ew")
             fields[key] = widget
+        if profile is not None:
+            ctk.CTkButton(form, text="Валюта бюджета — Google Sheets", command=lambda: self._show_budget_currency(profile)).grid(row=13, column=0, sticky="ew", pady=8)
         source_tracking = ctk.BooleanVar(value=profile.track_money_source if profile else False)
         self._editor_source_tracking = source_tracking
         ctk.CTkCheckBox(

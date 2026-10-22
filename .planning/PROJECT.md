@@ -10,18 +10,18 @@ The current improvement project keeps Google Sheets as the visible data store, b
 
 Users can record expenses in Telegram quickly and reliably, and the household gets a daily reminder with a shared category summary so missed expenses are caught the same evening.
 
-## Current Milestone: v1.6.0 Multiple Budget Bots
+## Current Milestone: v1.7.0 Budget settings
 
-**Goal:** Управлять несколькими независимыми Telegram-ботами бюджета из одной Windows-панели и подключить бизнес-профиль в рублях.
+**Goal:** Управлять валютой, режимом лимитов и созданием категорий из бота с Google Sheets как источником настроек бюджета.
 
 **Target features:**
-- Реестр профилей без фиксированного программного лимита, общий код, отдельные процессы/таблицы/пользователи/категории.
-- Совместимость существующего личного бюджета EUR; бизнес-профиль RUB с общей видимостью для разрешённых пользователей.
-- Изолированные runtime-файлы, журналы, сводки и доступ; Windows-автозапуск отмеченных профилей.
-- Добавление и проверка следующего бота в панели без изменения исходного кода.
-- Категории и участники остаются в Google Sheets. Токены хранятся отдельно от реестра и Git.
+- Валюта и режим месячных лимитов принадлежат таблице бюджета; локальные секреты и параметры запуска остаются на машине.
+- Миграция существующей валюты без перезаписи табличных настроек; обновление без перезапуска.
+- Учёт только расходов с возможностью снова включить сохранённые месячные лимиты.
+- Создание категории с первой подкатегорией и добавление подкатегорий через Telegram.
+- Совместимость изолированных профилей, контроль доступа и безопасные диалоги.
 
-**Authorization:** Пользователь 2026-10-21 поручил оформить майлстоун и исполнить согласованную архитектуру. Экономичные модели разрешены. Текущие локальные секреты не читаются агентами и не мигрируются вручную.
+**Authorization:** Пользователь 2026-10-22 поручил спланировать и реализовать согласованные изменения как GSD-фазы. Реализация и локальная проверка завершены. Пользователь отдельно разрешил публикацию ветки, создание PR и его слияние 2026-10-22. Живые таблицы и работающие боты не менялись.
 
 ## Requirements
 
@@ -130,3 +130,11 @@ Optional money sources implemented in runtime v1.6.1: per-profile flag default f
 ## Phase 14 result - 2026-10-21
 
 Runtime v1.6.2 adds independent panel pictures with managed local assets, native selection/reset and metadata-only persistence for running/personal profiles. Explicit user scope: only the panel; Telegram avatars unchanged. 122 tests/27 modules pass plus 18 final affected UI regressions; independent review no blockers.
+
+## v1.7.0 active — 2026-10-22
+
+User authorized planning and implementation in GSD phases 15–17: Sheet-backed currency/limit settings and Telegram category creation. Machine keeps connection, secrets and process configuration. Currency switch relabels all historical amounts without conversion. Execute sequentially; no live financial writes.
+
+## v1.7.0 implementation result — 2026-10-22
+
+Phases 15–17 complete; 180 tests across 33 modules pass with one Windows DPAPI skip. Sheet settings migrate once and update without restart. Telegram category creation and optional limits are implemented. No live data changed; operator rollout pending.

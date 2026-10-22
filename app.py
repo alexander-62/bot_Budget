@@ -16,6 +16,7 @@ from aiogram.fsm.strategy import FSMStrategy
 
 from handlers.expenses import router as expenses_router
 from handlers.menu import router as menu_router
+from handlers.settings import router as settings_router
 from handlers.shopping import router as shopping_router
 from scheduler import run_daily_digest_scheduler
 from services.async_tools import run_blocking
@@ -47,6 +48,10 @@ def create_dispatcher() -> Dispatcher:
         events_isolation=SimpleEventIsolation(),
         fsm_strategy=FSMStrategy.GLOBAL_USER,
     )
+    from services.settings_middleware import BudgetSettingsMiddleware
+    dp.message.outer_middleware(BudgetSettingsMiddleware())
+    dp.callback_query.outer_middleware(BudgetSettingsMiddleware())
+    dp.include_router(settings_router)
     dp.include_router(shopping_router)
     dp.include_router(expenses_router)
     dp.include_router(menu_router)

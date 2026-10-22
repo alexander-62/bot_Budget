@@ -1,6 +1,7 @@
-﻿from aiogram.types import KeyboardButton, ReplyKeyboardMarkup, WebAppInfo
+from aiogram.types import KeyboardButton, ReplyKeyboardMarkup, WebAppInfo
 
 from config import WEBAPP_URL
+from services.budget_settings import cached_settings
 from constants import (
     MENU_EXPENSES_TEXT,
     MENU_SHOPPING_TEXT,
@@ -14,13 +15,14 @@ def build_main_menu() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         keyboard=[
             [
-                KeyboardButton(text=f"📊 {MENU_VIEW_LIMITS_TEXT}"),
+                KeyboardButton(text=f"📊 {MENU_VIEW_LIMITS_TEXT}" if cached_settings().monthly_limits_enabled else "📊 Расходы за месяц"),
                 KeyboardButton(text=f"🧾 {MENU_VIEW_EXPENSES_TEXT}"),
             ],
             [
                 KeyboardButton(text=f"💸 {MENU_EXPENSES_TEXT}"),
                 KeyboardButton(text=f"🛒 {MENU_SHOPPING_TEXT}"),
             ],
+            [KeyboardButton(text="⚙️ Настройки")],
             [
                 KeyboardButton(
                     text=f"🌐 {MENU_WEBAPP_TEXT}",

@@ -39,6 +39,9 @@ async def send_due_daily_digests(bot: Bot) -> int:
     if not due_recipients:
         return 0
 
+    from services.budget_settings import settings_initialized, refresh_runtime_settings
+    if settings_initialized():
+        await run_blocking(refresh_runtime_settings)
     summary = await run_blocking(build_daily_digest_summary, digest_date)
     message_text = format_daily_digest_message(summary)
 

@@ -33,8 +33,9 @@ _WORKSHEET_RULES = (
 )
 
 
-def get_worksheet_rules(profile):
-    return _WORKSHEET_RULES + ((WorksheetRule(MONEY_SOURCES_SHEET_NAME, ("источник", "активно", "порядок")),) if profile.track_money_source else ())
+def get_worksheet_rules(profile, *, limits_enabled=True):
+    rules = tuple(rule for rule in _WORKSHEET_RULES if limits_enabled or rule.name != LIMITS_SHEET_NAME)
+    return rules + ((WorksheetRule(MONEY_SOURCES_SHEET_NAME, ("источник", "активно", "порядок")),) if profile.track_money_source else ())
 
 
 def validate_startup() -> None:
@@ -61,7 +62,12 @@ def _validate_config() -> None:
 
 def _validate_google_sheets_schema() -> None:
     spreadsheet = get_spreadsheet()
-    for rule in get_worksheet_rules(PROFILE):
+    from services.budget_settings import initialize_runtime_settings
+    try:
+        settings = initialize_runtime_settings()
+    except Exception as error:
+        raise StartupValidationError("Не удалось загрузить лист «Настройки». Проверьте доступ и значения параметров.") from error
+    for rule in get_worksheet_rules(PROFILE, limits_enabled=settings.monthly_limits_enabled):
         worksheet = find_worksheet_case_insensitive(spreadsheet, rule.name)
         if not rule.required_headers:
             continue

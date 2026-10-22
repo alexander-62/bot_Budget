@@ -76,6 +76,10 @@ def parse_amount_with_optional_comment(raw_input: str) -> tuple[str, str]:
 _APPENDED_RANGE_RE = re.compile(r"(?:(?:'[^']+'|[^!]+)!)?([A-Z]+)(\d+):([A-Z]+)(\d+)$")
 
 
+def _safe_category_cell(value: str) -> str:
+    return _as_text_cell(value) if value.startswith(("=", "+", "-", "@")) else value
+
+
 def _as_text_cell(value: str) -> str:
     # Sheets treats a leading apostrophe as an explicit text marker.
     return f"'{value}"
@@ -134,8 +138,8 @@ def write_expense(
             today,
             _as_text_cell(month_key),
             username,
-            category,
-            subcategory,
+            _safe_category_cell(category),
+            _safe_category_cell(subcategory),
             numeric_amount,
             comment,
             expense_id,
@@ -187,8 +191,8 @@ def update_expense(saved_expense: SavedExpense, amount: str, comment: str = "", 
                 saved_expense.date,
                 _as_text_cell(saved_expense.month_key),
                 saved_expense.username,
-                saved_expense.category,
-                saved_expense.subcategory,
+                _safe_category_cell(saved_expense.category),
+                _safe_category_cell(saved_expense.subcategory),
                 numeric_amount,
                 comment,
                 saved_expense.expense_id,

@@ -4,8 +4,8 @@ from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 
 def currency_symbol(currency: str | None = None) -> str:
     if currency is None:
-        from config import CURRENCY
-        currency = CURRENCY
+        from services.budget_settings import cached_settings
+        currency = cached_settings().currency
     return {"EUR": "€", "RUB": "₽"}[currency]
 
 

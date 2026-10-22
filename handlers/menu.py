@@ -7,7 +7,6 @@ import sys
 from calendar import monthrange
 from dataclasses import dataclass
 from datetime import date, datetime
-from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -24,7 +23,7 @@ from keyboards.limits import build_categories_keyboard, build_category_actions_k
 from keyboards.main import build_main_menu
 from services.async_tools import run_blocking
 from services.access import check_access_callback, check_access_message
-from services.budget import get_budget_limits, get_category_details, get_month_totals
+from services.budget import get_category_details, get_month_totals, get_report_categories
 from services.expenses import get_recent_expenses
 from services.google_sheets import get_spreadsheet_url
 from version import __version__
@@ -48,7 +47,6 @@ class GitPullResult:
 
 
 from services.money import (
-    parse_sheet_number as _parse_sheet_number,
     format_number as _format_eur_rounded,
     format_money_or_dash as _format_money_or_dash,
     format_remaining_with_alert as _format_remaining_with_alert,
@@ -81,21 +79,17 @@ def _create_log_export_snapshot() -> Path:
 
 async def _send_limits(target_message: types.Message) -> None:
     try:
-        total_limit, categories = await run_blocking(get_budget_limits)
+        categories = await run_blocking(get_report_categories)
         month_limit, month_spent, month_remaining = await run_blocking(get_month_totals)
     except Exception:
         logging.exception("Ошибка чтения лимитов из Google Sheets")
         await target_message.answer("Не удалось загрузить лимиты. Попробуйте позже.")
         return
 
-    if not categories:
-        await target_message.answer("Категории не найдены в таблице.")
-        return
-
     try:
-        limit_fmt = _format_eur_rounded(month_limit or total_limit)
+        limit_fmt = _format_money_or_dash(month_limit)
         spent_fmt = _format_eur_rounded(month_spent)
-        remaining_fmt = _format_eur_rounded(month_remaining)
+        remaining_fmt = _format_remaining_with_alert(month_remaining)
     except Exception:
         logging.exception("Ошибка форматирования значений лимитов")
         await target_message.answer("Не удалось загрузить лимиты. Попробуйте позже.")
@@ -106,14 +100,17 @@ async def _send_limits(target_message: types.Message) -> None:
 
     text = (
         "📌 Лимит:\n"
-        f"<b>{limit_fmt} {currency_symbol()}</b>\n\n"
+        f"<b>{limit_fmt}</b>\n\n"
         "💸 Потрачено:\n"
         f"<b>{spent_fmt} {currency_symbol()}</b>\n\n"
         "💰 Осталось:\n"
-        f"<b>{remaining_fmt} {currency_symbol()}</b>\n\n"
+        f"<b>{remaining_fmt}</b>\n\n"
         "📅 Дней до конца месяца:\n"
         f"<b>{days_left}</b>"
     )
+    from services.budget_settings import cached_settings
+    if not cached_settings().monthly_limits_enabled:
+        text = f"📊 Расходы за месяц\n\n💸 Потрачено: <b>{spent_fmt} {currency_symbol()}</b>"
     await target_message.answer(text, reply_markup=build_categories_keyboard(categories))
 
 
@@ -135,10 +132,10 @@ async def _send_recent_expenses(target_message: types.Message, limit: int = 5) -
     lines = [f"Последние {len(recent)} трат:"]
     for idx, item in enumerate(recent, start=1):
         date_value, username_value, category_value, subcategory_value, amount_value, comment_value = item[:6]
-        lines.append(f"{idx}. <b>{date_value}</b> | <b>{format_money_exact(amount_value)}</b> | <b>{subcategory_value}</b>")
+        lines.append(f"{idx}. <b>{date_value}</b> | <b>{format_money_exact(amount_value)}</b> | <b>{escape(subcategory_value)}</b>")
         details = [f"Пользователь: {username_value}"]
         if category_value:
-            details.append(f"Категория: {category_value}")
+            details.append(f"Категория: {escape(category_value)}")
         lines.append(" | ".join(details))
         if comment_value:
             lines.append(f"Комментарий: {comment_value}")
@@ -334,7 +331,7 @@ async def cmd_start(message: types.Message) -> None:
 
 
 @router.message(
-    lambda message: bool(message.text) and message.text.endswith(MENU_VIEW_LIMITS_TEXT)
+    lambda message: bool(message.text) and message.text.endswith((MENU_VIEW_LIMITS_TEXT, "Расходы за месяц"))
 )
 async def view_limits_handler(message: types.Message) -> None:
     if not await check_access_message(message):
@@ -447,7 +444,7 @@ async def category_click_handler(callback: types.CallbackQuery) -> None:
     category_idx = int(category_idx_raw)
 
     try:
-        _, categories = await run_blocking(get_budget_limits)
+        categories = await run_blocking(get_report_categories)
         if category_idx < 0 or category_idx >= len(categories):
             await callback.answer("Категория больше не актуальна. Обновите меню.", show_alert=True)
             return
@@ -465,33 +462,13 @@ async def category_click_handler(callback: types.CallbackQuery) -> None:
         await callback.answer("Не удалось загрузить категорию.", show_alert=True)
         return
 
-    category_limit_fmt = _format_money_or_dash(category_limit)
-    category_spent_fmt = _format_money_or_dash(category_spent)
-    category_remaining_fmt = _format_remaining_with_alert(category_remaining)
-
-    lines = [
-        f"🏷️ <b>{category_title}</b>",
-        "📊 Лимит / Потрачено / Осталось",
-        f"<b>{category_limit_fmt} / {category_spent_fmt} / {category_remaining_fmt}</b>",
-        "",
-        "🧾 Подкатегории:",
-    ]
-    if subcategories:
-        for sub_name, sub_limit, sub_spent, sub_remaining in subcategories:
-            sub_limit_fmt = _format_money_or_dash(sub_limit)
-            sub_spent_fmt = _format_money_or_dash(sub_spent)
-            sub_remaining_fmt = _format_remaining_with_alert(sub_remaining)
-            lines.append(f"👉<b>{sub_name}</b>")
-            lines.append("Лимит / Потрачено / Осталось")
-            lines.append(f"<b>{sub_limit_fmt} / {sub_spent_fmt} / {sub_remaining_fmt}</b>")
-            lines.append("")
-    else:
-        lines.append("- нет подкатегорий")
+    from services.budget_views import format_category_card
+    text = format_category_card((category_title, category_limit, category_spent, category_remaining, subcategories))
 
     await callback.answer()
     if callback.message:
         await callback.message.answer(
-            "\n".join(lines).strip(),
+            text,
             reply_markup=build_category_actions_keyboard(),
         )
 

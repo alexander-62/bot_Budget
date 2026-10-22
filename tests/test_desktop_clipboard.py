@@ -45,7 +45,10 @@ class DesktopClipboardTests(unittest.TestCase):
         self.entry.insert(0, "old value")
         self.entry.select_range(0, "end")
         with patch.object(self.native, "clipboard_get", return_value="https://example.test/Таблица") as read:
-            self.native.event_generate("<KeyPress>", keycode=86, state=4)
+            # X11 keycodes differ from Windows virtual keys; ask Tk for V on Linux.
+            import os
+            event = {"keycode": 86} if os.name == "nt" else {"keysym": "v"}
+            self.native.event_generate("<KeyPress>", state=4, **event)
             self.root.update()
         read.assert_called_once_with()
         self.assertEqual(self.entry.get(), "https://example.test/Таблица")

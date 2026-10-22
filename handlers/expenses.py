@@ -1,6 +1,5 @@
 import logging
 from html import escape
-from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 
 from aiogram import Router, types
 
@@ -64,10 +63,6 @@ async def _safe_delete_prompt(bot, chat_id: int | None, message_id: int | None) 
 
 
 from services.money import (
-    parse_sheet_number as _parse_sheet_number,
-    format_number as _format_eur_rounded,
-    format_money_or_dash as _format_money_or_dash,
-    format_remaining_with_alert as _format_remaining_with_alert,
     currency_symbol,
 )
 
@@ -88,31 +83,9 @@ async def _show_category_card(message_target: types.Message, category_name: str)
         await message_target.answer("Трата добавлена, но не удалось загрузить карточку категории.")
         return
 
-    category_limit_fmt = _format_money_or_dash(category_limit)
-    category_spent_fmt = _format_money_or_dash(category_spent)
-    category_remaining_fmt = _format_remaining_with_alert(category_remaining)
-
-    lines = [
-        f"🏷️ <b>{category_title}</b>",
-        "📊 Лимит / Потрачено / Осталось",
-        f"<b>{category_limit_fmt} / {category_spent_fmt} / {category_remaining_fmt}</b>",
-        "",
-        "🧾 Подкатегории:",
-    ]
-    if subcategories:
-        for sub_name, sub_limit, sub_spent, sub_remaining in subcategories:
-            sub_limit_fmt = _format_money_or_dash(sub_limit)
-            sub_spent_fmt = _format_money_or_dash(sub_spent)
-            sub_remaining_fmt = _format_remaining_with_alert(sub_remaining)
-            lines.append(f"👉<b>{sub_name}</b>")
-            lines.append("Лимит / Потрачено / Осталось")
-            lines.append(f"<b>{sub_limit_fmt} / {sub_spent_fmt} / {sub_remaining_fmt}</b>")
-            lines.append("")
-    else:
-        lines.append("- нет подкатегорий")
-
+    from services.budget_views import format_category_card
     await message_target.answer(
-        "\n".join(lines).strip(),
+        format_category_card((category_title, category_limit, category_spent, category_remaining, subcategories)),
         reply_markup=build_category_actions_keyboard(),
     )
 
@@ -131,6 +104,7 @@ async def _show_expense_category_step(message: types.Message, user_id: int) -> N
         return
 
     session = create_session(user_id=user_id, state="choose_category")
+    session.category_options = tuple(categories)
     prompt = await message.answer(
         "Введите категорию",
         reply_markup=build_expense_categories_keyboard(categories, session.session_id),
@@ -153,7 +127,7 @@ async def _show_repeat_expense_amount_step(
         await _show_source_step(message, user_id, session)
         return
     prompt = await message.answer(
-        f"Категория: {category}\nПодкатегория: {subcategory}\nВведите сумму (можно сразу с комментарием)",
+        f"Категория: {escape(category)}\nПодкатегория: {escape(subcategory)}\nВведите сумму (можно сразу с комментарием)",
         reply_markup=build_cancel_keyboard(session.session_id),
     )
     session.prompt_chat_id = prompt.chat.id
@@ -292,8 +266,8 @@ async def _finalize_expense(
 
     summary = [
         "Трата добавлена.",
-        f"Категория: {category}",
-        f"Подкатегория: {subcategory}",
+        f"Категория: {escape(category)}",
+        f"Подкатегория: {escape(subcategory)}",
         f"Сумма: {amount} {currency_symbol()}",
     ]
     if final_comment:
@@ -366,8 +340,8 @@ async def _update_saved_expense(
         "\n".join(
             [
                 "Трата обновлена.",
-                f"Категория: {saved_expense.category}",
-                f"Подкатегория: {saved_expense.subcategory}",
+                f"Категория: {escape(saved_expense.category)}",
+                f"Подкатегория: {escape(saved_expense.subcategory)}",
                 f"Сумма: {saved_expense.amount} {currency_symbol()}",
                 *([f"Источник: {escape(getattr(saved_expense, 'money_source', '') or 'Не указан')}"] if TRACK_MONEY_SOURCE else []),
                 *( [f"Комментарий: {saved_expense.comment}"] if saved_expense.comment else [] ),
@@ -510,6 +484,9 @@ async def expense_category_handler(callback: types.CallbackQuery) -> None:
     try:
         _, categories = await run_blocking(get_budget_limits)
         idx = int(idx_raw)
+        if session.category_options and session.category_options != tuple(categories):
+            await callback.answer("Список категорий изменился. Начните заново.", show_alert=True)
+            return
         if idx < 0 or idx >= len(categories):
             await callback.answer("Шаг устарел, начните заново", show_alert=True)
             return
@@ -536,6 +513,7 @@ async def expense_category_handler(callback: types.CallbackQuery) -> None:
 
     session.category = category_name
     session.state = "choose_subcategory"
+    session.subcategory_options = tuple(subcategories)
     touch_session(session)
 
     await _safe_delete_prompt(callback.bot, session.prompt_chat_id, session.prompt_message_id)
@@ -543,7 +521,7 @@ async def expense_category_handler(callback: types.CallbackQuery) -> None:
         await callback.answer("Ошибка сообщения.", show_alert=True)
         return
     prompt = await callback.message.answer(
-        f"Категория: {category_name}\nВыберите подкатегорию",
+        f"Категория: {escape(category_name)}\nВыберите подкатегорию",
         reply_markup=build_expense_subcategories_keyboard(subcategories, session.session_id),
     )
     session.prompt_chat_id = prompt.chat.id
@@ -576,6 +554,9 @@ async def expense_subcategory_handler(callback: types.CallbackQuery) -> None:
     try:
         subcategories = await run_blocking(get_subcategories_for_category, session.category)
         idx = int(idx_raw)
+        if session.subcategory_options and session.subcategory_options != tuple(subcategories):
+            await callback.answer("Список подкатегорий изменился. Начните заново.", show_alert=True)
+            return
         if idx < 0 or idx >= len(subcategories):
             await callback.answer("Шаг устарел, начните заново", show_alert=True)
             return
@@ -601,7 +582,7 @@ async def expense_subcategory_handler(callback: types.CallbackQuery) -> None:
         await callback.answer()
         return
     prompt = await callback.message.answer(
-        f"Категория: {session.category}\nПодкатегория: {session.subcategory}\nВведите сумму (можно сразу с комментарием)",
+        f"Категория: {escape(session.category)}\nПодкатегория: {escape(session.subcategory)}\nВведите сумму (можно сразу с комментарием)",
         reply_markup=build_cancel_keyboard(session.session_id),
     )
     session.prompt_chat_id = prompt.chat.id
