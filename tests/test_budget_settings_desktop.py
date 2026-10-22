@@ -33,6 +33,11 @@ class BudgetCurrencyUITests(unittest.TestCase):
         self.addCleanup(self.close)
 
     def close(self):
+        # Let each Toplevel cancel its own Windows titlebar callbacks before
+        # clearing root timers; cancelling child Tcl commands via root double-deletes them.
+        for child in list(self.panel.winfo_children()):
+            if isinstance(child, tkinter.Toplevel):
+                child.destroy()
         for callback in self.panel.tk.call('after','info'):
             self.panel.after_cancel(callback)
         self.panel._quit()
