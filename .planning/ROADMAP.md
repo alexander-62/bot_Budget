@@ -68,7 +68,7 @@
 
 ## Next step
 
-Implementation phases 9-14 complete, version 1.6.2. Deliver updates to the panel computer. Choose local pictures per profile; business source setup and live bot onboarding remain operator checks.
+Implementation phases 9–17 complete, version 1.7.0. Review the feature branch/PR and deliver to the panel computer. Live migration and Telegram acceptance remain operator checks.
 
 ### Phase 13: Optional money sources
 
@@ -104,3 +104,9 @@ Plans:
 Plans:
 
 - [x] 14-01-PLAN.md — Profile images, panel select/reset and verification.
+
+## v1.7.0 — Настройки бюджета из бота (2026-10-22)
+
+- [x] Phase 15: Настройки бюджета в Google Sheets. Requirements: SET-01, SET-02, SET-03. Plan: phases/15-sheet-budget-settings/15-01-PLAN.md
+- [x] Phase 16: Учёт расходов без месячных лимитов. Requirements: LIM-01, LIM-02. Plan: phases/16-optional-monthly-limits/16-01-PLAN.md
+- [x] Phase 17: Настройки и создание категорий в Telegram. Requirements: CAT-01, CAT-02, UX-01. Plan: phases/17-telegram-category-settings/17-01-PLAN.md

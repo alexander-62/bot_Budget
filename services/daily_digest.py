@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from html import escape
 from datetime import date, datetime, time
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 import logging
@@ -143,7 +144,7 @@ def format_daily_digest_message(summary: DailyDigestSummary) -> str:
 
     lines = ["Добрый вечер.", "", "Сегодня записали траты:", ""]
     for category, amount in summary.category_totals:
-        lines.append(f"{category}: {_format_money(amount)}")
+        lines.append(f"{escape(category)}: {_format_money(amount)}")
     lines.extend(["", f"Всего: {_format_money(summary.total)}", "", "Не забыли ли мы что-то еще записать?"])
     return "\n".join(lines)
 

@@ -80,6 +80,7 @@ class ProfileIsolationTests(unittest.TestCase):
                 env = {key: value for key, value in os.environ.items()
                        if not key.startswith('BOT_BUDGET_') and key not in {'BOT_TOKEN', 'SPREADSHEET_ID', 'GOOGLE_CREDENTIALS_FILE'}}
                 env['BOT_BUDGET_PROFILE'] = profile.id
+                env['PYTHONUTF8'] = '1'  # Parent decoding does not configure child stdout on Windows.
                 workers.append(subprocess.Popen([sys.executable, '-c', CHILD, str(base)], cwd=ROOT,
                                                 env=env, text=True, encoding='utf-8', stdout=subprocess.PIPE, stderr=subprocess.PIPE))
             results = []

@@ -8,6 +8,7 @@ from time import monotonic
 from zoneinfo import ZoneInfo
 
 from config import BOT_TIMEZONE
+from services.budget_settings import cached_settings
 
 from constants import CATEGORIES_SHEET_NAME, EXPENSES_SHEET_NAME, LIMITS_SHEET_NAME
 from services.google_sheets import (
@@ -36,6 +37,7 @@ class BudgetSnapshot:
     active_subcategories: tuple[ActiveSubcategory, ...]
     limits_by_pair: dict[tuple[str, str], Decimal]
     spent_by_pair: dict[tuple[str, str], Decimal]
+    report_subcategories: tuple[ActiveSubcategory, ...] = ()
 
 
 _budget_snapshot_cache: dict[str, BudgetSnapshot] = {}
@@ -59,19 +61,21 @@ def get_month_totals() -> tuple[str, str, str]:
     month_key = get_current_month_key()
     snapshot = _get_budget_snapshot(month_key)
 
-    total_limit = Decimal("0")
-    total_spent = Decimal("0")
-    for item in snapshot.active_subcategories:
-        key = (normalize_text(item.category), normalize_text(item.subcategory))
-        total_limit += snapshot.limits_by_pair.get(key, Decimal("0"))
-        total_spent += snapshot.spent_by_pair.get(key, Decimal("0"))
-
-    total_remaining = total_limit - total_spent
+    total_spent = sum(snapshot.spent_by_pair.values(), Decimal("0"))
+    keys = {(normalize_text(i.category), normalize_text(i.subcategory)) for i in snapshot.active_subcategories}
+    keys.update(snapshot.spent_by_pair)
+    has_limit = cached_settings().monthly_limits_enabled and bool(keys) and keys.issubset(snapshot.limits_by_pair)
+    total_limit = sum((snapshot.limits_by_pair.get(key, Decimal("0")) for key in keys), Decimal("0"))
     return (
-        _format_decimal(total_limit),
+        _format_decimal(total_limit) if has_limit else "—",
         _format_decimal(total_spent),
-        _format_decimal(total_remaining),
+        _format_decimal(total_limit - total_spent) if has_limit else "—",
     )
+
+
+def get_report_categories() -> list[str]:
+    snapshot = _get_budget_snapshot(get_current_month_key())
+    return _unique_categories(snapshot.report_subcategories)
 
 
 def get_category_details(
@@ -81,7 +85,7 @@ def get_category_details(
     snapshot = _get_budget_snapshot(month_key)
 
     target_key = normalize_text(category_name)
-    category_items = [item for item in snapshot.active_subcategories if normalize_text(item.category) == target_key]
+    category_items = [item for item in snapshot.report_subcategories if normalize_text(item.category) == target_key]
     if not category_items:
         raise ValueError("Категория не найдена")
 
@@ -90,8 +94,11 @@ def get_category_details(
     category_limit = Decimal("0")
     category_spent = Decimal("0")
 
+    all_limited = cached_settings().monthly_limits_enabled
     for item in category_items:
         pair_key = (normalize_text(item.category), normalize_text(item.subcategory))
+        limited = cached_settings().monthly_limits_enabled and pair_key in snapshot.limits_by_pair
+        all_limited = all_limited and limited
         sub_limit = snapshot.limits_by_pair.get(pair_key, Decimal("0"))
         sub_spent = snapshot.spent_by_pair.get(pair_key, Decimal("0"))
         sub_remaining = sub_limit - sub_spent
@@ -101,25 +108,25 @@ def get_category_details(
         subcategories.append(
             (
                 item.subcategory,
-                _format_decimal(sub_limit),
+                _format_decimal(sub_limit) if limited else "—",
                 _format_decimal(sub_spent),
-                _format_decimal(sub_remaining),
+                _format_decimal(sub_remaining) if limited else "—",
             )
         )
 
     category_remaining = category_limit - category_spent
     return (
         category_title,
-        _format_decimal(category_limit),
+        _format_decimal(category_limit) if all_limited else "—",
         _format_decimal(category_spent),
-        _format_decimal(category_remaining),
+        _format_decimal(category_remaining) if all_limited else "—",
         subcategories,
     )
 
 
 def get_subcategories_for_category(category_name: str) -> list[str]:
-    _, _, _, _, subcategories = get_category_details(category_name)
-    return [name for name, *_ in subcategories]
+    snapshot = _get_budget_snapshot(get_current_month_key())
+    return [item.subcategory for item in snapshot.active_subcategories if normalize_text(item.category) == normalize_text(category_name)]
 
 
 def clear_budget_snapshot_cache() -> None:
@@ -138,14 +145,22 @@ def _get_budget_snapshot(month_key: str, refresh: bool = False) -> BudgetSnapsho
 
 def _load_budget_snapshot(month_key: str) -> BudgetSnapshot:
     active_subcategories = tuple(_load_active_subcategories())
-    limits_by_pair = _load_limits_for_month(month_key)
-    spent_by_pair = _load_spent_for_month(month_key)
+    limits_by_pair = _load_limits_for_month(month_key) if cached_settings().monthly_limits_enabled else {}
+    titles = {}
+    spent_by_pair = _load_spent_for_month(month_key, titles)
+    report = list(active_subcategories)
+    pairs = {(normalize_text(item.category), normalize_text(item.subcategory)) for item in report}
+    for category, subcategory in spent_by_pair:
+        if (category, subcategory) not in pairs:
+            title_category, title_subcategory = titles[(category, subcategory)]
+            report.append(ActiveSubcategory(title_category, title_subcategory, 10**9))
     return BudgetSnapshot(
         loaded_at=monotonic(),
         month_key=month_key,
         active_subcategories=active_subcategories,
         limits_by_pair=limits_by_pair,
         spent_by_pair=spent_by_pair,
+        report_subcategories=tuple(report),
     )
 
 
@@ -207,12 +222,14 @@ def _load_limits_for_month(month_key: str) -> dict[tuple[str, str], Decimal]:
             continue
 
         raw_limit = row[month_col_idx].strip() if len(row) > month_col_idx else ""
+        if not raw_limit:
+            continue
         limits[(normalize_text(category), normalize_text(subcategory))] = _parse_decimal(raw_limit)
 
     return limits
 
 
-def _load_spent_for_month(month_key: str) -> dict[tuple[str, str], Decimal]:
+def _load_spent_for_month(month_key: str, titles: dict | None = None) -> dict[tuple[str, str], Decimal]:
     spreadsheet = get_spreadsheet()
     worksheet = find_worksheet_case_insensitive(spreadsheet, EXPENSES_SHEET_NAME)
     rows = worksheet.get_all_values()
@@ -229,6 +246,8 @@ def _load_spent_for_month(month_key: str) -> dict[tuple[str, str], Decimal]:
 
         key = (normalize_text(category), normalize_text(subcategory))
         spent[key] = spent.get(key, Decimal("0")) + _parse_decimal(raw_amount)
+        if titles is not None:
+            titles.setdefault(key, (category, subcategory))
 
     return spent
 

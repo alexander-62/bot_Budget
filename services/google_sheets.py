@@ -69,7 +69,9 @@ def validate_profile_connection(profile, credentials_path):
     from constants import MONEY_SOURCES_SHEET_NAME
     spreadsheet = open_profile_spreadsheet(profile, credentials_path)
     worksheets = {normalize_text(ws.title): ws for ws in spreadsheet.worksheets()}
-    for rule in get_worksheet_rules(profile):
+    from services.budget_settings import BudgetSettings, read_settings, SETTINGS_SHEET
+    settings = read_settings(spreadsheet) if normalize_text(SETTINGS_SHEET) in worksheets else BudgetSettings(profile.currency)
+    for rule in get_worksheet_rules(profile, limits_enabled=settings.monthly_limits_enabled):
         worksheet = worksheets.get(normalize_text(rule.name))
         if worksheet is None:
             raise ValueError(f"Не найден лист «{rule.name}». Создайте его по шаблону.")

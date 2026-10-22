@@ -20,6 +20,8 @@ class ExpenseSession:
     finalized: bool = False
     money_source: str = ""
     source_options: tuple[str, ...] = ()
+    category_options: tuple[str, ...] = ()
+    subcategory_options: tuple[str, ...] = ()
 
 
 _expense_sessions: dict[int, ExpenseSession] = {}

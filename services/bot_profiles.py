@@ -20,7 +20,7 @@ class BotProfile:
     id: str
     name: str
     spreadsheet_id: str
-    currency: str = "EUR"
+    currency: str = "EUR"  # Bootstrap seed for Sheets migration, not runtime currency.
     timezone: str = "Europe/Moscow"
     autostart: bool = False
     credentials_file: str = ""

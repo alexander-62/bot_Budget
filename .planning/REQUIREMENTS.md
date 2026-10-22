@@ -98,3 +98,14 @@ Coverage: 25 requirements, all mapped once. Previous: milestones/pre-v1.6.0-REQU
 Verified 2026-10-21: implementation complete; 109 tests/25 modules pass; phase 13 optional sources verified. Live business onboarding remains operator action.
 
 Phase 14 verified 2026-10-21: 122 tests / 27 modules, then 18 affected UI regressions after final selector synchronization; panel pictures only.
+
+## v1.7.0 — Budget settings
+
+- [x] SET-01: Таблица — единственный источник валюты и режима лимитов.
+- [x] SET-02: Безопасная идемпотентная миграция и валидация без перезаписи настроек.
+- [x] SET-03: Валюта обновляется без перезапуска; панель не перезаписывает её из профиля.
+- [x] LIM-01: При выключении лимитов остаются траты и статистика, скрываются потолок и остаток.
+- [x] LIM-02: Все расходы входят в итоги; отсутствие лимита отличается от нуля.
+- [x] CAT-01: Создание категории с первой подкатегорией из бота.
+- [x] CAT-02: Добавление подкатегории; проверка дублей и сброс кеша.
+- [x] UX-01: Доступ, отмена, срок сессии и защита устаревших кнопок.
