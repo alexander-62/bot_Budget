@@ -94,6 +94,8 @@ class ProcessControlTests(unittest.TestCase):
             }.items():
                 stack.enter_context(patch.object(manage_bot, name, folder / filename))
             stack.enter_context(patch.object(manage_bot, "_is_running", return_value=True))
+            # This test owns synthetic PID 4321, not any live local endpoint.
+            stack.enter_context(patch.object(manage_bot, "_worker_identity", return_value=True))
             stack.enter_context(patch.object(manage_bot, "_is_webapp_port_busy", return_value=False))
             stack.enter_context(patch.object(manage_bot, "start_tray"))
             stack.enter_context(patch("builtins.print"))

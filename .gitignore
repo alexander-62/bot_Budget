@@ -84,3 +84,8 @@ profiles.json
 .runtime/
 .profiles-*.tmp
 .profiles.lock
+
+# Pending updater state and locks
+.update-state.json
+.update-state-*.tmp
+.update.lock

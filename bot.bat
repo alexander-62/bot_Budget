@@ -1,5 +1,5 @@
 @echo off
-setlocal EnableExtensions
+setlocal EnableExtensions EnableDelayedExpansion
 
 chcp 65001 >nul
 set "PYTHONUTF8=1"
@@ -20,6 +20,8 @@ if /I "%~1"=="status" goto :RunManager
 if /I "%~1"=="tray" goto :RunManager
 if /I "%~1"=="stop-tray" goto :RunManager
 if /I "%~1"=="update" goto :Update
+if /I "%~1"=="prepare-update" goto :RunManager
+if /I "%~1"=="finish-update" goto :RunManager
 
 goto :Usage
 
@@ -37,64 +39,57 @@ if exist "%VENV_PY%" (
             if errorlevel 1 exit /b 1
         )
         "%VENV_PY%" manage_bot.py %*
-        exit /b %errorlevel%
+        exit /b !errorlevel!
     )
 )
 
 if /I "%~1"=="stop" (
     "%PYTHON_EXE%" manage_bot.py %*
-    exit /b %errorlevel%
+    exit /b !errorlevel!
 )
 if /I "%~1"=="status" (
     "%PYTHON_EXE%" manage_bot.py %*
-    exit /b %errorlevel%
+    exit /b !errorlevel!
 )
 if /I "%~1"=="stop-tray" (
     "%PYTHON_EXE%" manage_bot.py %*
-    exit /b %errorlevel%
+    exit /b !errorlevel!
 )
 
 call :RepairVenv
 if errorlevel 1 exit /b 1
 
 "%VENV_PY%" manage_bot.py %*
-exit /b %errorlevel%
+exit /b !errorlevel!
 
 :Update
-setlocal EnableExtensions
-
+setlocal EnableExtensions EnableDelayedExpansion
 set "GIT_EXE="
-
 call :FindGit
 if not defined GIT_EXE (
     call :InstallGit
-    if errorlevel 1 (
-        echo.
-        echo Git не установлен, и автоматическая установка не удалась.
-        echo Установи Git for Windows вручную и запусти bat-файл еще раз.
-        pause
-        exit /b 1
-    )
+    if errorlevel 1 exit /b 1
     call :FindGit
 )
-
 if not defined GIT_EXE (
-    echo.
-    echo Git все еще не найден после установки.
+    echo Git не найден. Установите Git for Windows и повторите обновление.
     pause
     exit /b 1
 )
 
-echo === Остановка бота ===
-call :RunManager stop
-call :RunManager stop-tray
-
-echo.
-echo === Обновление из GitHub ===
+echo === Получение обновлений ===
 "%GIT_EXE%" fetch origin main
 if errorlevel 1 (
-    echo.
-    echo Не удалось получить обновления из GitHub.
+    echo Не удалось получить обновления. Работающие боты не остановлены.
+    pause
+    exit /b 1
+)
+
+echo === Сохранение списка работающих ботов ===
+call :RunManager prepare-update
+if errorlevel 1 (
+    echo Не удалось подготовить обновление. Восстанавливаем сохранённые профили.
+    call :RunManager finish-update
     pause
     exit /b 1
 )
@@ -103,48 +98,37 @@ set "CURRENT_BRANCH="
 for /f "usebackq delims=" %%I in (`"%GIT_EXE%" branch --show-current 2^>nul`) do set "CURRENT_BRANCH=%%I"
 if /I not "%CURRENT_BRANCH%"=="main" (
     "%GIT_EXE%" switch main
-    if errorlevel 1 (
-        "%GIT_EXE%" switch -c main --track origin/main
-        if errorlevel 1 (
-            echo.
-            echo Не удалось переключиться на main.
-            pause
-            exit /b 1
-        )
-    )
+    if errorlevel 1 goto :UpdateFailed
 )
-
 "%GIT_EXE%" pull --ff-only origin main
-if errorlevel 1 (
-    echo.
-    echo Ошибка при обновлении репозитория.
-    echo Проверь сеть, Git и наличие локальных изменений.
-    pause
-    exit /b 1
-)
+if errorlevel 1 goto :UpdateFailed
 
-echo.
-echo === Установка зависимостей ===
 call :FindPython
-if errorlevel 1 exit /b 1
-
+if errorlevel 1 goto :UpdateFailed
 call :RepairVenv
-if errorlevel 1 exit /b 1
-
+if errorlevel 1 goto :UpdateFailed
 call :InstallRequirements
+if errorlevel 1 goto :UpdateFailed
+
+echo === Запуск и проверка всех ранее работающих ботов ===
+call :RunManager finish-update
 if errorlevel 1 (
-    echo.
-    echo Не удалось установить зависимости из requirements.txt.
+    echo Обновление не завершено: не все боты подтвердили готовность.
+    echo Список сохранён. Для повторного запуска: bot.bat finish-update
     pause
     exit /b 1
 )
-
-echo.
-echo === Запуск бота ===
-call :RunManager start
-
+echo Все ранее работающие боты обновлены и готовы.
 endlocal
 exit /b 0
+
+:UpdateFailed
+echo Обновление не завершено. Восстанавливаем ранее работающие профили.
+call :RunManager finish-update
+if errorlevel 1 echo Не все профили запущены. Повторите bot.bat finish-update после устранения ошибки.
+pause
+endlocal
+exit /b 1
 
 :FindGit
 if defined GIT_EXE exit /b 0
@@ -175,7 +159,7 @@ if errorlevel 1 (
 
 echo Git не найден. Пытаюсь установить Git for Windows через winget...
 winget install --id Git.Git -e --source winget --silent --accept-package-agreements --accept-source-agreements
-exit /b %errorlevel%
+exit /b !errorlevel!
 
 :FindPython
 if defined PYTHON_EXE exit /b 0
@@ -216,11 +200,11 @@ if errorlevel 1 (
 )
 
 call :InstallRequirements
-exit /b %errorlevel%
+exit /b !errorlevel!
 
 :InstallRequirements
 ".venv\Scripts\python.exe" -m pip install -r requirements.txt
-exit /b %errorlevel%
+exit /b !errorlevel!
 
 :Usage
 echo.

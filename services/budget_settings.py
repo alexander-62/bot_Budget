@@ -45,6 +45,10 @@ def _worksheet(spreadsheet):
 
 def _rows(ws):
     rows = ws.get_all_values()
+    # Real Sheets returns [[]] for a newly created/cleared sheet. Fakes often
+    # return []; both represent an empty sheet eligible for initialization.
+    if not any(any(str(value).strip() for value in row) for row in rows):
+        return [], {}
     if rows and [normalize_text(v) for v in rows[0][:2]] != [normalize_text(v) for v in HEADER]:
         raise ValueError("Лист «Настройки»: ожидаются столбцы «Параметр», «Значение».")
     indexed = {}

@@ -721,6 +721,11 @@ class BudgetPanel(ctk.CTk):
             if SHOW_REQUEST_FILE.exists():
                 request = SHOW_REQUEST_FILE.read_text(encoding="utf-8").strip()
                 SHOW_REQUEST_FILE.unlink(missing_ok=True)
+                if request == "quit-for-update":
+                    if not (self._busy or self._picture_busy or getattr(self, "_saving_profile", False)):
+                        self._quit()
+                        return
+                    self.feedback.configure(text="Дождитесь сохранения настроек и повторите обновление.", text_color=AMBER)
                 if request in {"start", "show-and-start"}:
                     self._startup_requested = True
                 if request in {"show", "show-and-start"}:

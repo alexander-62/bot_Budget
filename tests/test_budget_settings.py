@@ -79,6 +79,17 @@ class BudgetSettingsTests(unittest.TestCase):
         self.assertEqual(sheet.sheets[0].rows, before)
         self.assertEqual(len(sheet.sheets[0].writes), writes)
 
+    def test_real_empty_sheet_shapes_initialize_headers_and_defaults(self):
+        for rows in ([[]], [["", ""]], [["  ", ""]]):
+            with self.subTest(rows=rows):
+                spreadsheet = Spreadsheet(Sheet('Настройки', copy.deepcopy(rows)))
+                self.assertEqual(settings.ensure_settings(spreadsheet, 'RUB'), settings.BudgetSettings('RUB', True))
+                self.assertEqual(spreadsheet.sheets[0].rows[0], settings.HEADER)
+                self.assertEqual(len(spreadsheet.sheets[0].rows), 3)
+                writes = len(spreadsheet.sheets[0].writes)
+                settings.ensure_settings(spreadsheet, 'EUR')
+                self.assertEqual(len(spreadsheet.sheets[0].writes), writes)
+
     def test_partial_migration_preserves_false_and_unknown_settings(self):
         sheet = Spreadsheet(Sheet('Настройки', [settings.HEADER, ['monthly_limits_enabled', 'FALSE'], ['custom', 'keep']]))
         self.assertEqual(settings.ensure_settings(sheet, 'RUB'), settings.BudgetSettings('RUB', False))

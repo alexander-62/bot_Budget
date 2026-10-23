@@ -65,6 +65,10 @@ def _validate_google_sheets_schema() -> None:
     from services.budget_settings import initialize_runtime_settings
     try:
         settings = initialize_runtime_settings()
+    except ValueError as error:
+        if str(error).startswith("Лист «Настройки»:"):
+            raise StartupValidationError(str(error)) from None
+        raise StartupValidationError("Не удалось загрузить лист «Настройки». Проверьте доступ и значения параметров.") from error
     except Exception as error:
         raise StartupValidationError("Не удалось загрузить лист «Настройки». Проверьте доступ и значения параметров.") from error
     for rule in get_worksheet_rules(PROFILE, limits_enabled=settings.monthly_limits_enabled):

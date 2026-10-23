@@ -581,6 +581,8 @@ def main() -> int:
     desktop_parser.add_argument("--start-bot", action="store_true")
 
     sub.add_parser("start-autostart", help="Start panel and enabled profiles")
+    sub.add_parser("prepare-update", help="Remember and stop active profiles before updating")
+    sub.add_parser("finish-update", help="Restart and verify profiles remembered before updating")
     for name in ("start", "stop", "restart", "status"):
         command_parser = sub.choices[name]
         selection = command_parser.add_mutually_exclusive_group()
@@ -588,6 +590,13 @@ def main() -> int:
         selection.add_argument("--all", action="store_true")
 
     args = parser.parse_args()
+    if args.command in {"prepare-update", "finish-update"}:
+        from services.update_runtime import prepare, finish
+        try:
+            (prepare if args.command == "prepare-update" else finish)(sys.modules[__name__])
+        except (RuntimeError, OSError, ValueError) as error:
+            _failure(str(error))
+        return EXIT_CODE
     if args.command == "start-autostart":
         start_autostart()
         return EXIT_CODE
