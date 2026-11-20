@@ -48,8 +48,8 @@ def _sheet_cells(items):
              else {"stringValue": str(value)}} if value is not None else {} for value in items]
 
 
-def update_cells(sheet, row_number, values):
-    return {"updateCells": {"start": {"sheetId": sheet.id, "rowIndex": row_number - 1, "columnIndex": 0},
+def update_cells(sheet, row_number, values, *, column_index=0):
+    return {"updateCells": {"start": {"sheetId": sheet.id, "rowIndex": row_number - 1, "columnIndex": column_index},
                             "rows": [{"values": _sheet_cells(values)}], "fields": "userEnteredValue"}}
 
 
@@ -69,12 +69,12 @@ def guarded_batch(spreadsheet, requests, *, guard=None):
     return spreadsheet.batch_update({"requests": requests})
 
 
-def atomic_append_and_update(spreadsheet, append_sheet, values, update_sheet, row_number, updated_values, *, guard=None):
+def atomic_append_and_update(spreadsheet, append_sheet, values, update_sheet, row_number, updated_values, *, guard=None, update_column=0):
     """Apply both writes atomically, with explicit literal strings."""
     return guarded_batch(spreadsheet, [
         {"appendCells": {"sheetId": append_sheet.id, "rows": [{"values": _sheet_cells(values)}],
                          "fields": "userEnteredValue"}},
-        update_cells(update_sheet, row_number, updated_values),
+        update_cells(update_sheet, row_number, updated_values, column_index=update_column),
     ], guard=guard)
 
 

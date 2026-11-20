@@ -99,7 +99,10 @@ class Spreadsheet:
                 target = snapshots[data['start']['sheetId']]
                 index = data['start']['rowIndex']
                 values = self._values(data['rows'][0])
-                target[index] = values + target[index][len(values):]
+                column = data['start']['columnIndex']
+                row = target[index]
+                row.extend([''] * max(0, column + len(values) - len(row)))
+                row[column:column + len(values)] = values
         self.metadata = metadata
         for sheet in self.sheets:
             sheet.rows = snapshots[sheet.id]

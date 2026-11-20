@@ -69,6 +69,7 @@ async def _list(message, session):
     if (session.page + 1) * PAGE_SIZE < len(records):
         choices.append(('Далее →', 'next'))
     choices += [('Добавить', 'new'), ('Ожидают оплаты' if session.history else 'История', 'history')]
+    choices.append(('Прогноз расходов', 'forecast'))
     from services.planned_reminders import subscription_enabled
     enabled = await run_blocking(subscription_enabled, session.owner_id)
     choices.append(('🔔 Напоминания: включены' if enabled else '🔕 Напоминания: выключены', 'reminders'))
@@ -215,6 +216,11 @@ async def planned_callback(callback: types.CallbackQuery):
         elif action == 'history' and session.step == 'list':
             session.history, session.page = not session.history, 0
             await _list(message, session)
+        elif action == 'forecast' and session.step == 'list':
+            from services.planned_forecast import forecast_message
+            text = await run_blocking(forecast_message)
+            advance(session, 'forecast')
+            await message.answer(text, reply_markup=actions(session, [('К списку', 'list')]))
         elif action == 'reminders' and session.step == 'list':
             from services.planned_reminders import subscription_enabled, set_subscription
             enabled = await run_blocking(subscription_enabled, user_id)

@@ -64,6 +64,8 @@ def _roll_forward(ws, row, plan, due):
         plan.comment, plan.creator_id, plan.creator, revision=uuid4().hex[:12],
         created_at=plan.created_at, repeat_rule=plan.repeat_rule, repeat_anchor=plan.repeat_anchor,
     )
-    previous = replace(plan, repeat_rule='', repeat_anchor='', revision=uuid4().hex[:12])
-    atomic_append_and_update(plans.get_spreadsheet(), ws, following.values(), ws, row, previous.values(),
-                             guard=(key, transaction_guard(key)))
+    # Touch only the schedule columns. A delayed request must never restore
+    # payment status or any other fields from its older snapshot.
+    atomic_append_and_update(plans.get_spreadsheet(), ws, following.values(), ws, row, ['', ''],
+                             guard=(key, transaction_guard(key)),
+                             update_column=plans.HEADERS.index('repeat_rule'))
