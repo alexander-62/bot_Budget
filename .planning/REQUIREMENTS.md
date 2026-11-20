@@ -1,111 +1,57 @@
-# Requirements: v1.6.0 Multiple Budget Bots
+# Requirements: v1.8.0 Будущие траты
 
-**Defined:** 2026-10-21
-**Core value:** Быстро и надёжно записывать расходы в независимые бюджеты из одной панели.
+**Defined:** 2026-11-20
 
 ## v1 Requirements
 
-### Profiles
+### Phase 18
 
-- [x] **PROF-01**: Произвольное число профилей без изменения кода: ID, имя, таблица, валюта, часовой пояс, автозапуск.
-- [x] **PROF-02**: Существующий личный бот работает с прежними настройками и данными без ручной миграции.
-- [x] **PROF-03**: Токены отдельно от JSON, Git и журналов; некорректные ID, повторный Telegram-бот или таблица отклоняются.
+- [ ] **FUT-01**: Оператор включает будущие траты отдельно для каждого профиля; старые профили по умолчанию выключены.
+- [ ] **FUT-02**: При выключенном флаге меню, обработчики и напоминания отключены, лист не требуется; сохранённые планы не удаляются.
+- [ ] **FUT-03**: Пользователь создаёт план с названием, категорией/подкатегорией, необязательными суммой/датой и комментарием.
+- [ ] **FUT-04**: Участники бюджета видят общий список: просроченные, ближайшие, без даты; могут изменить/отменить план и открыть историю.
+- [ ] **FUT-05**: Планы сохраняют постоянный ID и автора; открытые планы не меняют фактические расходы/лимиты; данные изолированы по профилям.
 
-### Data and access
+### Phase 19
 
-- [x] **DATA-01**: У каждого бота собственная таблица, категории и Users; разрешённые пользователи видят общий бюджет только своего бота.
-- [x] **DATA-02**: RUB в бизнес-расходах, итогах и сводках; EUR у personal. Дата и сводки учитывают часовой пояс профиля.
-- [x] **AUTH-03**: Новые профили проверяют числовой Telegram user ID; legacy-доступ личного бота сохраняется.
+- [ ] **PAY-01**: Пользователь подтверждает фактические сумму/дату и источник при включённом учёте источников; расход записывается за дату оплаты.
+- [ ] **PAY-02**: Оплата атомарно создаёт фактическую трату и закрывает план со ссылкой на expense_id, сохраняя историю и подтвердившего пользователя.
+- [ ] **PAY-03**: Двойное нажатие, два пользователя и потеря ответа после записи не создают повторного расхода; повторная попытка читает сохранённый результат.
+- [ ] **PAY-04**: Неавторизованные, устаревшие и чужие сессионные кнопки отклоняются; оплата проверяет актуальность плана и справочников.
 
-### Process management
+### Phase 20
 
-- [x] **PROC-01**: Независимые запуск/остановка/перезапуск, память, PID, блокировки, журналы.
-- [x] **PROC-02**: Health сверяется с профилем и PID; чужой процесс на старом порту не показывает ложную готовность.
-- [x] **PROC-03**: Одна панель и трей; Windows-автозапуск запускает только отмеченные профили.
-
-### Desktop panel
-
-- [x] **UI-01**: Выбор бота, состояние, управление, открытие его таблицы и журнала.
-- [x] **UI-02**: Добавление/редактирование с маскированным токеном; третий бот подключается без изменения исходников.
-- [x] **UI-03**: Telegram-токен и схема Sheets проверяются до сохранения; безопасные ошибки и отзывчивый UI.
-- [x] **UI-04**: Запоздалый ответ не применяется к другому профилю; работающий профиль нельзя незаметно перенастроить.
-
-### Verification and onboarding
-
-- [x] **TEST-05**: Fakes подтверждают изоляцию двух профилей и добавление третьего; старые tests проходят без секретов/живых записей.
-- [x] **DOC-01**: Руководство: Telegram-бот, схема бизнес-таблицы, Users IDs, доступ сервисного аккаунта, RUB-профиль в панели.
-
-## Phase 13 Requirements — Optional money sources
-
-- [x] **SRC-01**: Each bot profile has a persisted boolean source-tracking setting, default false for existing and personal profiles, editable in the desktop form.
-- [x] **SRC-02**: Enabled profiles read active sources from their own «Источники» Sheet; disabled profiles do not require/read it. Startup/connection validation enforces the optional schema only when enabled.
-- [x] **SRC-03**: Enabled expense entry requires source selection before amount; callbacks remain safe when lists change or sessions expire.
-- [x] **SRC-04**: Expense source is stored in I without moving H expense_id; old rows remain blank and source survives amount/comment edits and feature disabling.
-- [x] **SRC-05**: Enabled confirmation, recent expenses and saved editing show/allow changing source; source edits preserve amount/comment and stable record identity.
-- [x] **SRC-06**: Fake-based flow/data/UI regression tests pass; business setup documents the toggle and optional schema without live financial writes.
-
-All SRC requirements map to phase 13. Prior 15 requirements remain complete.
-
-## Phase 14 Requirements — Panel pictures
-
-- [x] **IMG-01**: Each profile has a backward-compatible local image setting; old profiles use the existing default logo/initial.
-- [x] **IMG-02**: Operator chooses or clears a picture for any selected bot, including running and legacy personal, without tokens/network or other settings changes.
-- [x] **IMG-03**: Imported assets are bounded valid managed copies; card/icon selection and late worker completion cannot use another profile's picture or overwrite newer metadata.
-- [x] **IMG-04**: Generated-image and real-widget regressions, full suite, visual QA and local-asset documentation pass; Telegram avatars remain outside scope.
-
-All IMG requirements map to phase 14. User explicitly confirmed pictures only in the panel.
+- [ ] **REM-01**: В 21:30 в часовом поясе профиля создатель получает напоминание за день/в день оплаты и ежедневно при просрочке.
+- [ ] **REM-02**: Для планов без даты создатель получает общий список по понедельникам; оплаченные/отменённые планы исключены.
+- [ ] **REM-03**: Подписка на будущие платежи независима от digest_enabled; отметки доставки переживают перезапуск; неудачи повторяются без блокирования обычной сводки.
+- [ ] **REM-04**: Кнопка из напоминания открывает актуальную карточку и позволяет оплатить/изменить план; отключённый флаг блокирует старые кнопки.
 
 ## Future Requirements
 
-Серверное размещение, удалённая панель, общий ограничитель Sheets-нагрузки, база данных при измеренной необходимости, явная миграция личного доступа на ID, профильный выбор shopping/limits.
+Повторяющиеся платежи, частичные оплаты, несколько ответственных, индивидуальное расписание.
 
 ## Out of Scope
 
-SaaS/биллинг, гарантия бесконечной одновременной нагрузки, расширение прав изменения чужих расходов, автоматические живые финансовые записи при тестировании.
+Автоматическое проведение расходов без подтверждения, изменение сумм по курсу, доступ к живым финансовым данным при проверках. Для первой версии — один процесс бота на бюджет, как в текущей архитектуре; параллельное ручное редактирование строк во время подтверждения не является транзакционно защищённым сценарием Sheets.
 
 ## Traceability
 
 | Requirement | Phase | Status |
 |---|---|---|
-| PROF-01 | 9 | Complete |
-| PROF-02 | 9 | Complete |
-| PROF-03 | 9 | Complete |
-| DATA-01 | 9 | Complete |
-| DATA-02 | 9 | Complete |
-| AUTH-03 | 9 | Complete |
-| PROC-01 | 10 | Complete |
-| PROC-02 | 10 | Complete |
-| PROC-03 | 10 | Complete |
-| UI-01 | 11 | Complete |
-| UI-02 | 11 | Complete |
-| UI-03 | 11 | Complete |
-| UI-04 | 11 | Complete |
-| TEST-05 | 12 | Complete |
-| DOC-01 | 12 | Complete |
-| SRC-01 | 13 | Complete |
-| SRC-02 | 13 | Complete |
-| SRC-03 | 13 | Complete |
-| SRC-04 | 13 | Complete |
-| SRC-05 | 13 | Complete |
-| SRC-06 | 13 | Complete |
-| IMG-01 | 14 | Complete |
-| IMG-02 | 14 | Complete |
-| IMG-03 | 14 | Complete |
-| IMG-04 | 14 | Complete |
+| FUT-01 | 18 | Pending |
+| FUT-02 | 18 | Pending |
+| FUT-03 | 18 | Pending |
+| FUT-04 | 18 | Pending |
+| FUT-05 | 18 | Pending |
+| PAY-01 | 19 | Pending |
+| PAY-02 | 19 | Pending |
+| PAY-03 | 19 | Pending |
+| PAY-04 | 19 | Pending |
+| REM-01 | 20 | Pending |
+| REM-02 | 20 | Pending |
+| REM-03 | 20 | Pending |
+| REM-04 | 20 | Pending |
 
-Coverage: 25 requirements, all mapped once. Previous: milestones/pre-v1.6.0-REQUIREMENTS.md.
+## Definition of Done
 
-Verified 2026-10-21: implementation complete; 109 tests/25 modules pass; phase 13 optional sources verified. Live business onboarding remains operator action.
-
-Phase 14 verified 2026-10-21: 122 tests / 27 modules, then 18 affected UI regressions after final selector synchronization; panel pictures only.
-
-## v1.7.0 — Budget settings
-
-- [x] SET-01: Таблица — единственный источник валюты и режима лимитов.
-- [x] SET-02: Безопасная идемпотентная миграция и валидация без перезаписи настроек.
-- [x] SET-03: Валюта обновляется без перезапуска; панель не перезаписывает её из профиля.
-- [x] LIM-01: При выключении лимитов остаются траты и статистика, скрываются потолок и остаток.
-- [x] LIM-02: Все расходы входят в итоги; отсутствие лимита отличается от нуля.
-- [x] CAT-01: Создание категории с первой подкатегорией из бота.
-- [x] CAT-02: Добавление подкатегории; проверка дублей и сброс кеша.
-- [x] UX-01: Доступ, отмена, срок сессии и защита устаревших кнопок.
+Все требования покрыты fake-based тестами; полная изолированная регрессия и smoke проходят. Документированы схема, флаг, расписание, повторные попытки и ограничения. Живая Telegram-приёмка отмечается pending, не подменяется автоматическими тестами.

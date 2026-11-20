@@ -17,3 +17,8 @@ Optional money sources implemented and verified: per-profile boolean, active own
 ## Phase 14 follow-up - runtime v1.6.2, 2026-10-21
 
 Independent panel pictures implemented and verified: managed local imports, select/reset, metadata-only persistence and safe profile routing. Scope explicitly panel only. 122 tests/27 modules pass plus final 18 affected UI regressions, zero publication findings. Separate commit from phase13; remote deployment pending.
+
+
+## v1.7.0 Budget settings — implementation complete, 2026-10-22
+
+Phases 15–17 implemented and verified (180 tests, 33 modules; one Windows DPAPI skip). Source is in main at 50a4ec2, followed by 055b906. Live migration and operator Telegram acceptance were not verified here and remain rollout tasks. Planning snapshots archived under milestones/v1.7.0-*.md.

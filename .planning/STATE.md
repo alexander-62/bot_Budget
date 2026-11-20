@@ -1,16 +1,16 @@
 ---
-gsd_state_version: 1.0
-milestone: v1.7.0
-milestone_name: Budget settings
-status: implementation_complete
-last_updated: "2026-10-22"
-last_activity: 2026-10-22 - Phases 15–17 implemented and verified; live rollout pending.
+gsd_state_version: "1.0"
+milestone: v1.8.0
+milestone_name: Будущие траты
+status: planning
+last_updated: "2026-11-20T19:43:44.795Z"
+last_activity: 2026-11-20
 progress:
-  total_phases: 3
-  completed_phases: 3
-  total_plans: 3
-  completed_plans: 3
-  percent: 100
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
@@ -30,3 +30,10 @@ Prior milestone state archived in milestones/v1.6.3-STATE.md; historical phase r
 ## Delivery status
 
 Implementation is saved on branch feat/sheet-budget-settings. User explicitly authorized public publication, PR creation and merge on 2026-10-22. Publish and merge after CI checks; live rollout remains an operator action.
+
+## Current Position
+
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-11-20 — Milestone v1.8.0 started
