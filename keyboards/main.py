@@ -1,6 +1,6 @@
 from aiogram.types import KeyboardButton, ReplyKeyboardMarkup, WebAppInfo
 
-from config import WEBAPP_URL
+from config import WEBAPP_URL, PLANNED_EXPENSES_ENABLED
 from services.budget_settings import cached_settings
 from constants import (
     MENU_EXPENSES_TEXT,
@@ -23,6 +23,7 @@ def build_main_menu() -> ReplyKeyboardMarkup:
                 KeyboardButton(text=f"🛒 {MENU_SHOPPING_TEXT}"),
             ],
             [KeyboardButton(text="⚙️ Настройки")],
+            *([[KeyboardButton(text="📅 Будущие траты")]] if PLANNED_EXPENSES_ENABLED else []),
             [
                 KeyboardButton(
                     text=f"🌐 {MENU_WEBAPP_TEXT}",

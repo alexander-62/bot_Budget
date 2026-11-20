@@ -1,112 +1,116 @@
-# Roadmap: v1.6.0 Multiple Budget Bots
+# Roadmap: v1.8.0 Будущие траты
 
-**Created:** 2026-10-21. Пользователь поручил исполнить согласованную архитектуру.
-Предыдущие фазы 1–8 сохранены; старая карта: milestones/pre-v1.6.0-ROADMAP.md.
+Предыдущая реализация и фазы 1–17 архивированы в milestones/v1.7.0-*.md и milestones/v1.7.0-phases/. Живая приёмка v1.7.0 остаётся отдельной операторской задачей.
 
-| Phase | Goal | Requirements | Status |
-|---|---|---|---|
-| 9. Bot Profiles | Профили, секреты, валюты, доступ, совместимость | PROF-01, PROF-02, PROF-03, DATA-01, DATA-02, AUTH-03 | Complete |
-| 10. Profile Processes | Независимый запуск, health и автозапуск | PROC-01, PROC-02, PROC-03 | Complete |
-| 11. Multi-Bot Panel | Добавление, проверка и управление в панели | UI-01, UI-02, UI-03, UI-04 | Complete |
-| 12. Platform Verification | Изоляция, регрессии, документация | TEST-05, DOC-01 | Complete |
-| 13. Optional Money Sources | Включаемый источник денег в записи расходов | SRC-01, SRC-02, SRC-03, SRC-04, SRC-05, SRC-06 | Complete |
-| 14. Per-Bot Profile Pictures | Своя локальная картинка каждого бота в панели | IMG-01, IMG-02, IMG-03, IMG-04 | Complete |
+## Phases
 
-## Phase 9: Bot Profiles
+- [x] **Phase 18: Планирование трат** — Реестр и управление планами за фича-флагом.
+- [x] **Phase 19: Подтверждение оплаты** — Атомарное проведение фактического расхода.
+- [x] **Phase 20: Напоминания** — Независимые подписки и сохранённые отметки доставки.
 
-**Goal:** Общий код работает с изолированными настройками, личный бот совместим.
-**Depends on:** Previous implementation.
+- [x] **Phase 21: Отложить напоминание** (completed 2026-11-20)
+
+- [x] **Phase 22: Повторяющиеся платежи** (completed 2026-11-20)
+
+- [x] **Phase 23: Прогноз расходов** (completed 2026-11-20)
+
+- [x] **Phase 24: Исправление оплаты** (completed 2026-11-20)
+
+- [x] **Phase 25: Восстановление оплаты** (completed 2026-11-20)
+
+## Phase Details
+
+### Phase 18: Планирование трат
+
+**Goal:** Создание, просмотр, изменение и отмена общих планов за фича-флагом.
+**Requirements:** FUT-01, FUT-02, FUT-03, FUT-04, FUT-05
+**Depends on:** Existing runtime v1.7.0
 **Success criteria:**
+1. Добавление плана от меню до Sheets и повторного чтения, без даты и суммы.
+2. Пагинация списка, карточки и история с постоянными ID.
+3. Флаг в реестре/панели/старте, изоляция и переключение диалогов.
 
-1. Personal использует прежнюю конфигурацию/таблицу и EUR.
-2. Новый профиль не наследует личный токен/таблицу; секреты не входят в реестр/repr/logs.
-3. Категории и доступ по ID относятся к собственной таблице.
-4. Валюта и часовой пояс применяются к расходам/сводкам.
-
-**Plan:** phases/09-bot-profiles/09-01-PLAN.md.
-
-## Phase 10: Profile Processes
-
-**Goal:** Управление одним ботом не затрагивает остальные.
-**Depends on:** Phase 9.
-**Success criteria:**
-
-1. Раздельные процессы, PID/lock/log и память.
-2. Повторные старты и health другого профиля отклоняются.
-3. Панель/трей общие, автозапуск учитывает только выбранные профили.
-
-**Plan:** phases/10-profile-processes/10-01-PLAN.md.
-
-## Phase 11: Multi-Bot Panel
-
-**Goal:** Добавить третий бот и управлять им без изменения кода.
-**Depends on:** Phase 9, Phase 10.
-**Success criteria:**
-
-1. Статус/команды/таблица/журнал относятся к выбранному боту.
-2. Добавление и редактирование проверяют Telegram и Sheets, не показывают токены.
-3. UI остаётся отзывчивым; запоздалый результат не подменяет выбранный профиль.
-4. Работающий профиль не перенастраивается незаметно.
-
-**Plan:** phases/11-multi-bot-panel/11-01-PLAN.md.
-
-## Phase 12: Platform Verification
-
-**Goal:** Подтвердить изоляцию и документировать подключение бизнеса.
-**Depends on:** Phase 9, Phase 10, Phase 11.
-**Success criteria:**
-
-1. Все тестовые модули и межпрофильные проверки проходят без живых записей.
-2. Регрессии проверены; реестр/секреты/runtime исключены из Git.
-3. Документация содержит схему таблицы и путь подключения RUB-профиля. Живое подключение не выдается за выполненное без токена и таблицы.
-
-**Plan:** phases/12-platform-verification/12-01-PLAN.md.
-
-## Execution notes
-
-Секции реализации делегированы экономичной модели по непересекающимся файлам и общей API-спецификации. Интеграция следует зависимостям фаз. Пользовательские изменения AGENTS.md не входят в коммиты.
-
-## Next step
-
-Implementation phases 9–17 complete, version 1.7.0. Review the feature branch/PR and deliver to the panel computer. Live migration and Telegram acceptance remain operator checks.
-
-### Phase 13: Optional money sources
-
-**Goal:** Per-profile optional source selection, expense persistence and saved editing, retaining disabled-profile compatibility.
-**Requirements**: SRC-01, SRC-02, SRC-03, SRC-04, SRC-05, SRC-06
-**Depends on:** Phase 12
 **Plans:** 1/1 plans complete
 
+- [x] 18-01-PLAN.md
+
+### Phase 19: Подтверждение оплаты
+
+**Goal:** План становится фактическим расходом ровно один раз при подтверждении.
+**Requirements:** PAY-01, PAY-02, PAY-03, PAY-04
+**Depends on:** Phase 18
 **Success criteria:**
+1. Подтверждение суммы/даты/источника и актуальной версии плана.
+2. Одна Sheets batchUpdate-транзакция: appendCells факта и updateCells плана.
+3. Защита конкуренции, восстановление после неопределённого сетевого результата.
 
-1. Old/personal profiles default to disabled and require no source sheet or additional Telegram step.
-2. Enabled profiles select active sources from their own Sheet and save source in I, retaining H identity and old rows.
-3. Source, amount and comment edits preserve other fields and reject stale/foreign callbacks.
-4. Desktop toggle, schema validation, fake regressions and operator setup instructions cover enabled and disabled modes.
+**Plans:** 1/1 plans complete
 
-Plans:
+- [x] 19-01-PLAN.md
 
-- [x] 13-01-PLAN.md — Optional money sources: profile/data, Telegram flow, desktop and verification.
+### Phase 20: Напоминания
 
-### Phase 14: Per-bot profile pictures
-
-**Goal:** Select/reset independent pictures for each bot in the Windows panel, preserving settings and compatibility.
-**Requirements**: IMG-01, IMG-02, IMG-03, IMG-04
-**Depends on:** Phase 13
-**Plans:** 1 plan
-
+**Goal:** Создатель получает своевременные независимые напоминания.
+**Requirements:** REM-01, REM-02, REM-03, REM-04
+**Depends on:** Phase 19
 **Success criteria:**
-1. Every selected bot displays its own managed image or default; old JSON profiles still load.
-2. Choose/reset works for running and legacy personal profiles without token access or other settings changes.
-3. Late saves and native dialog selection changes never retarget a different profile; invalid images preserve the old picture.
-4. Generated-image, UI and regression checks pass; scope remains panel-only.
+1. Независимая подписка в Users, необязательный столбец с default enabled.
+2. Отбор по дате и timezone, понедельничная сводка без даты, сохранённая доставка.
+3. Изолированный scheduler, актуальные кнопки, документация и общая регрессия.
 
-Plans:
+**Plans:** 1/1 plans complete
 
-- [x] 14-01-PLAN.md — Profile images, panel select/reset and verification.
+- [x] 20-01-PLAN.md
 
-## v1.7.0 — Настройки бюджета из бота (2026-10-22)
+### Phase 21: Отложить напоминание
 
-- [x] Phase 15: Настройки бюджета в Google Sheets. Requirements: SET-01, SET-02, SET-03. Plan: phases/15-sheet-budget-settings/15-01-PLAN.md
-- [x] Phase 16: Учёт расходов без месячных лимитов. Requirements: LIM-01, LIM-02. Plan: phases/16-optional-monthly-limits/16-01-PLAN.md
-- [x] Phase 17: Настройки и создание категорий в Telegram. Requirements: CAT-01, CAT-02, UX-01. Plan: phases/17-telegram-category-settings/17-01-PLAN.md
+**Goal:** Создатель выбирает завтра, через неделю или свою дату. Срок оплаты сохраняется.
+**Depends on:** Phase 20
+**Requirements:** EXT-21
+
+- [x] 21-01-PLAN.md
+
+### Phase 22: Повторяющиеся платежи
+
+**Goal:** Еженедельные и ежемесячные планы порождают следующие платежи без дублей.
+**Depends on:** Phase 21
+**Requirements:** EXT-22
+
+- [x] 22-01-PLAN.md
+
+### Phase 23: Прогноз расходов
+
+**Goal:** Суммы на семь дней и до конца месяца, просроченные и неизвестные суммы отдельно.
+**Depends on:** Phase 22
+**Requirements:** EXT-23
+
+- [x] 23-01-PLAN.md
+
+### Phase 24: Исправление оплаты
+
+**Goal:** Плательщик исправляет сумму или дату и может отменить проведение. Сохраняется история.
+**Depends on:** Phase 23
+**Requirements:** EXT-24
+
+- [x] 24-01-PLAN.md
+
+### Phase 25: Восстановление оплаты
+
+**Goal:** Панель проверяет результат и позволяет безопасно завершить неопределённую оплату.
+**Depends on:** Phase 24
+**Requirements:** EXT-25
+
+- [x] 25-01-PLAN.md
+
+## Progress
+
+| Phase | Plans Complete | Status | Completed |
+|---|---|---|---|
+| 18. Планирование трат | 1/1 | Complete | 2026-11-20 |
+| 19. Подтверждение оплаты | 1/1 | Complete | 2026-11-20 |
+| 20. Напоминания | 1/1 | Complete | 2026-11-20 |
+| 21. Отложить напоминание | 1/1 | Complete    | 2026-11-20 |
+| 22. Повторяющиеся платежи | 1/1 | Complete    | 2026-11-20 |
+| 23. Прогноз расходов | 1/1 | Complete    | 2026-11-20 |
+| 24. Исправление оплаты | 1/1 | Complete    | 2026-11-20 |
+| 25. Восстановление оплаты | 1/1 | Complete    | 2026-11-20 |

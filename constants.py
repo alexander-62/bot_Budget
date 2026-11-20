@@ -4,6 +4,8 @@ LIMITS_SHEET_NAME = "Лимиты_по_месяцам"
 EXPENSES_SHEET_NAME = "Траты_по_месяцам"
 SHOPPING_SHEET_NAME = "Список покупок Продукты"
 MONEY_SOURCES_SHEET_NAME = "Источники"
+PLANNED_EXPENSES_SHEET_NAME = "Будущие_траты"
+MENU_PLANNED_TEXT = "Будущие траты"
 
 MENU_VIEW_LIMITS_TEXT = "Посмотреть лимиты"
 MENU_VIEW_EXPENSES_TEXT = "Посмотреть траты"

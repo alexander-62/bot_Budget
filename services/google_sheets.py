@@ -43,6 +43,45 @@ def get_spreadsheet_url() -> str:
     return f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/edit"
 
 
+def _sheet_cells(items):
+    return [{"userEnteredValue": {"numberValue": value} if isinstance(value, (int, float))
+             else {"stringValue": str(value)}} if value is not None else {} for value in items]
+
+
+def update_cells(sheet, row_number, values, *, column_index=0):
+    return {"updateCells": {"start": {"sheetId": sheet.id, "rowIndex": row_number - 1, "columnIndex": column_index},
+                            "rows": [{"values": _sheet_cells(values)}], "fields": "userEnteredValue"}}
+
+
+def transaction_guard(key):
+    """Unique metadata ID acts as a write-once guard in a Sheets batch."""
+    from hashlib import sha256
+    return 1 + int.from_bytes(sha256(key.encode()).digest()[:8], "big") % (2**31 - 1)
+
+
+def guarded_batch(spreadsheet, requests, *, guard=None):
+    if guard:
+        key, metadata_id = guard
+        requests = [{"createDeveloperMetadata": {"developerMetadata": {
+            "metadataId": metadata_id, "metadataKey": "budget_bot_transaction",
+            "metadataValue": key, "location": {"spreadsheet": True}, "visibility": "DOCUMENT",
+        }}}] + requests
+    return spreadsheet.batch_update({"requests": requests})
+
+
+def append_cells(sheet, values):
+    return {"appendCells": {"sheetId": sheet.id, "rows": [{"values": _sheet_cells(values)}],
+                            "fields": "userEnteredValue"}}
+
+
+def atomic_append_and_update(spreadsheet, append_sheet, values, update_sheet, row_number, updated_values, *, guard=None, update_column=0):
+    """Apply both writes atomically, with explicit literal strings."""
+    return guarded_batch(spreadsheet, [
+        append_cells(append_sheet, values),
+        update_cells(update_sheet, row_number, updated_values, column_index=update_column),
+    ], guard=guard)
+
+
 def find_worksheet_case_insensitive(
     spreadsheet: gspread.Spreadsheet, worksheet_name: str
 ) -> gspread.Worksheet:
@@ -66,7 +105,7 @@ def open_profile_spreadsheet(profile, credentials_path):
 def validate_profile_connection(profile, credentials_path):
     # Import lazily: startup validation itself uses the cached adapter above.
     from services.startup_validation import get_worksheet_rules, validate_worksheet_header
-    from constants import MONEY_SOURCES_SHEET_NAME
+    from constants import MONEY_SOURCES_SHEET_NAME, PLANNED_EXPENSES_SHEET_NAME
     spreadsheet = open_profile_spreadsheet(profile, credentials_path)
     worksheets = {normalize_text(ws.title): ws for ws in spreadsheet.worksheets()}
     from services.budget_settings import BudgetSettings, read_settings, SETTINGS_SHEET
@@ -74,10 +113,20 @@ def validate_profile_connection(profile, credentials_path):
     for rule in get_worksheet_rules(profile, limits_enabled=settings.monthly_limits_enabled):
         worksheet = worksheets.get(normalize_text(rule.name))
         if worksheet is None:
+            if rule.name == PLANNED_EXPENSES_SHEET_NAME:
+                # Enabling the feature creates its empty sheet on next startup.
+                continue
             raise ValueError(f"Не найден лист «{rule.name}». Создайте его по шаблону.")
         if rule.required_headers:
+            if rule.name == PLANNED_EXPENSES_SHEET_NAME:
+                from services.planned_expenses import validate_planned_header
+                header = worksheet.row_values(1)
+                if header or any(any(str(cell).strip() for cell in row) for row in worksheet.get_all_values()):
+                    validate_planned_header(header, allow_legacy=True)
+                continue
             try:
-                validate_worksheet_header(rule, worksheet.row_values(1), legacy=profile.legacy, track_money_source=profile.track_money_source)
+                validate_worksheet_header(rule, worksheet.row_values(1), legacy=profile.legacy, track_money_source=profile.track_money_source,
+                                          planned_expenses_enabled=getattr(profile, "planned_expenses_enabled", False))
             except ValueError:
                 raise ValueError(f"Лист «{rule.name}»: проверьте обязательные заголовки и порядок столбцов по шаблону.") from None
         if rule.name == MONEY_SOURCES_SHEET_NAME:

@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 import re
 from uuid import uuid4
@@ -123,14 +123,19 @@ def write_expense(
     amount: str,
     comment: str = "",
     money_source: str = "",
+    *,
+    expense_date: date | None = None,
 ) -> SavedExpense:
     if TRACK_MONEY_SOURCE:
         validate_money_source(money_source)
     spreadsheet = get_spreadsheet()
     worksheet = find_worksheet_case_insensitive(spreadsheet, EXPENSES_SHEET_NAME)
     current = datetime.now(ZoneInfo(BOT_TIMEZONE))
-    today = current.strftime("%Y-%m-%d")
-    month_key = get_current_month_key(current.date())
+    actual_date = expense_date or current.date()
+    if actual_date > current.date():
+        raise ValueError("Дата фактической оплаты не может быть в будущем.")
+    today = actual_date.isoformat()
+    month_key = get_current_month_key(actual_date)
     numeric_amount = float(amount.replace(" ", "").replace(",", "."))
     expense_id = uuid4().hex
 
@@ -327,3 +332,25 @@ def _normalize_amount_for_compare(value: str) -> Decimal:
     if not normalized:
         return Decimal("0")
     return Decimal(normalized).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+
+def write_planned_payment(planned_ws, planned_row, plan, *, spreadsheet=None, expense_sheet=None):
+    """Append and close atomically. Replays of the same intention share a guard."""
+    from services.google_sheets import append_cells, guarded_batch, transaction_guard
+    from services.planned_expenses import payment_updates
+
+    payment_date = date.fromisoformat(plan.actual_date)
+    comment = plan.title + (' — ' + plan.comment if plan.comment else '')
+    values = [plan.actual_date, get_current_month_key(payment_date), plan.paid_by,
+              plan.category, plan.subcategory, float(plan.actual_amount.replace(',', '.')),
+              comment, plan.expense_id]
+    if plan.payment_source:
+        values.append(plan.payment_source)
+    if spreadsheet is None:
+        spreadsheet = get_spreadsheet()
+    if expense_sheet is None:
+        expense_sheet = find_worksheet_case_insensitive(spreadsheet, EXPENSES_SHEET_NAME)
+    key = f'payment:{plan.expense_id}:{plan.payment_guard}'
+    guarded_batch(spreadsheet, [append_cells(expense_sheet, values), *payment_updates(planned_ws, planned_row, plan)],
+                  guard=(key, transaction_guard(key)))
+    clear_budget_snapshot_cache()

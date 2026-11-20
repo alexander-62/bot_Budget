@@ -10,18 +10,17 @@ The current improvement project keeps Google Sheets as the visible data store, b
 
 Users can record expenses in Telegram quickly and reliably, and the household gets a daily reminder with a shared category summary so missed expenses are caught the same evening.
 
-## Current Milestone: v1.7.0 Budget settings
+## Current Milestone: v1.8.0 Будущие траты
 
-**Goal:** Управлять валютой, режимом лимитов и созданием категорий из бота с Google Sheets как источником настроек бюджета.
+**Goal:** Заранее записать разовый или повторяющийся платёж, получить напоминание и подтвердить оплату с созданием фактической траты.
 
 **Target features:**
-- Валюта и режим месячных лимитов принадлежат таблице бюджета; локальные секреты и параметры запуска остаются на машине.
-- Миграция существующей валюты без перезаписи табличных настроек; обновление без перезапуска.
-- Учёт только расходов с возможностью снова включить сохранённые месячные лимиты.
-- Создание категории с первой подкатегорией и добавление подкатегорий через Telegram.
-- Совместимость изолированных профилей, контроль доступа и безопасные диалоги.
+- Персональный флаг профиля planned_expenses_enabled, по умолчанию false, переключатель в панели.
+- Общий список будущих трат в Google Sheets: дата и сумма необязательны, создание/изменение/отмена/история.
+- Полная оплата с фактическими суммой, датой и источником; атомарная запись факта и закрытие плана без дублей.
+- Отдельные напоминания создателю: накануне/в день/после срока, без даты раз в неделю, время 21:30 профиля.
 
-**Authorization:** Пользователь 2026-10-22 поручил спланировать и реализовать согласованные изменения как GSD-фазы. Реализация и локальная проверка завершены. Пользователь отдельно разрешил публикацию ветки, создание PR и его слияние 2026-10-22. Живые таблицы и работающие боты не менялись.
+**Authorization:** Пользователь 2026-11-20 согласовал предложенную первую версию, поручил создать новый milestone и реализовать автономно в новой ветке. Ветка feat/planned-expenses создана от актуального origin/main (055b906). Это разрешение на локальную реализацию и проверки; живой бот/финансовые таблицы не используются для тестирования.
 
 ## Requirements
 
@@ -42,12 +41,14 @@ Users can record expenses in Telegram quickly and reliably, and the household ge
 - Runtime smoke check passes under installed dependencies.
 
 ### Active
-- [x] Phase 14: independent pictures for each bot in the local panel; native selection/reset, managed assets and safe profile switching (IMG-01 through IMG-04).
-- [x] Phase 13: per-profile optional source of funds, own-sheet source list, expense entry/edit/persistence and desktop toggle (SRC-01 through SRC-06).
-- [x] Profile registry, legacy compatibility, secret isolation and per-profile currencies/access (phase 9).
-- [x] Independent lifecycle, health identity and selective Windows autostart (phase 10).
-- [x] Profile selection, add/edit/connect validation and management in the desktop panel (phase 11).
-- [x] Fake-based integration verification and business onboarding documentation (phase 12).
+
+- [x] Future plans behind an isolated profile flag, shared Telegram CRUD/history and optional amount/date — Phase 18.
+- [x] Atomic full-payment confirmation with actual date/amount/source, persistent identity and uncertain-outcome protection — Phase 19.
+- [x] Independent per-creator reminders and subscriptions, durable day/week delivery buckets — Phase 20.
+
+- [x] Snooze, recurrence, forecast, payment correction, and panel recovery — Phases 21–25.
+
+Operator rollout and live acceptance are tracked in UAT.md.
 
 ### Out of Scope
 
@@ -117,7 +118,7 @@ After each milestone:
 4. Update Context with current state.
 
 ---
-*Last updated: 2026-07-09 for phase 8 daily digest*
+*Last updated: 2026-11-20 for v1.8.0 planned expenses*
 
 ## v1.6.0 implementation result ? 2026-10-21
 
@@ -138,3 +139,7 @@ User authorized planning and implementation in GSD phases 15–17: Sheet-backed 
 ## v1.7.0 implementation result — 2026-10-22
 
 Phases 15–17 complete; 180 tests across 33 modules pass with one Windows DPAPI skip. Sheet settings migrate once and update without restart. Telegram category creation and optional limits are implemented. No live data changed; operator rollout pending.
+
+## v1.8.0 implementation result — 2026-11-20
+
+Phases 18–20 implemented and verified on feat/planned-expenses using installed GSD workflows/CLI. 228 tests / 39 modules, zero module failures, one Windows DPAPI skip; 40 new tests cover plans, financial idempotency, reminders, panel and Telegram integration. No new runtime dependency. Feature defaults off; new sheet initializes only when enabled. Actual expense append and paid marker use one atomic Sheets batch after a persistent processing intent. Unknown outcomes block re-append until verified. Live rollout remains pending operator acceptance.
