@@ -54,6 +54,7 @@ class Spreadsheet:
     def __init__(self, *sheets):
         self.sheets = list(sheets)
         self.batches = []
+        self.metadata = {}
         self.batch_error_before = None
         self.batch_error_after = False
         self.deferred_batch = None
@@ -82,18 +83,27 @@ class Spreadsheet:
     def apply_batch(self, body):
         # Real spreadsheets.batchUpdate validates all requests before applying.
         snapshots = {s.id: deepcopy(s.rows) for s in self.sheets}
+        metadata = self.metadata.copy()
         for request in body['requests']:
-            if 'appendCells' in request:
+            if 'createDeveloperMetadata' in request:
+                entry = request['createDeveloperMetadata']['developerMetadata']
+                if entry['metadataId'] in metadata:
+                    raise ValueError('duplicate developer metadata id')
+                metadata[entry['metadataId']] = entry['metadataValue']
+            elif 'appendCells' in request:
                 data = request['appendCells']
                 target = snapshots[data['sheetId']]
                 target.extend([self._values(row) for row in data['rows']])
             else:
                 data = request['updateCells']
                 target = snapshots[data['start']['sheetId']]
-                target[data['start']['rowIndex']] = self._values(data['rows'][0])
+                index = data['start']['rowIndex']
+                values = self._values(data['rows'][0])
+                target[index] = values + target[index][len(values):]
+        self.metadata = metadata
         for sheet in self.sheets:
             sheet.rows = snapshots[sheet.id]
 
     @staticmethod
     def _values(row):
-        return [str(next(iter(cell['userEnteredValue'].values()))) for cell in row['values']]
+        return [str(next(iter(cell.get('userEnteredValue', {}).values()), '')) for cell in row['values']]

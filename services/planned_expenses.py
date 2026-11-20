@@ -243,7 +243,12 @@ def update_plan(planned_id, expected_revision, **values):
         ws = _worksheet()
         row, plan = _find(ws, planned_id)
         _assert_pending(plan, expected_revision)
-        updated = replace(plan, **cleaned, revision=uuid4().hex[:12])
+        if plan.repeat_rule and not cleaned['due_date']:
+            raise ValueError('Сначала отключите повторение: для серии нужна дата оплаты.')
+        anchor = plan.repeat_anchor
+        if plan.repeat_rule == 'monthly' and cleaned['due_date'] != plan.due_date:
+            anchor = str(date.fromisoformat(cleaned['due_date']).day)
+        updated = replace(plan, **cleaned, repeat_anchor=anchor, revision=uuid4().hex[:12])
         _write(ws, row, updated)
         return updated
 
@@ -253,7 +258,7 @@ def cancel_plan(planned_id, expected_revision):
         ws = _worksheet()
         row, plan = _find(ws, planned_id)
         _assert_pending(plan, expected_revision)
-        updated = replace(plan, status='cancelled', revision=uuid4().hex[:12])
+        updated = replace(plan, status='cancelled', revision=uuid4().hex[:12], repeat_rule='', repeat_anchor='')
         _write(ws, row, updated)
         return updated
 

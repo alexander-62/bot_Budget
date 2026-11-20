@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 
 from aiogram import Bot
 
@@ -19,7 +20,15 @@ from services.daily_digest import (
 
 
 async def run_daily_digest_scheduler(bot: Bot) -> None:
+    next_recurrence_check = 0.0
     while True:
+        if PLANNED_EXPENSES_ENABLED and time.monotonic() >= next_recurrence_check:
+            from services.planned_recurrence import advance_due_series
+            next_recurrence_check = time.monotonic() + 300
+            try:
+                await run_blocking(advance_due_series)
+            except Exception:
+                logging.exception("Не удалось проверить повторяющиеся платежи")
         for send in (send_due_daily_digests, send_due_planned_reminders):
             try:
                 await send(bot)

@@ -96,6 +96,11 @@ async def _card(message, session, planned_id):
         choices = [('Проверить результат', 'backcard')] + choices
     else:
         text += '\n\nОтменено'
+    from services.planned_recurrence import RULES
+    if plan.repeat_rule:
+        text += f'\nПовторение: {RULES.get(plan.repeat_rule, "?")}'
+    if plan.status == 'pending' and plan.due_date or plan.status == 'paid' and plan.repeat_rule:
+        choices.insert(-1, ('Повторение', 'repeat'))
     await message.answer(text, reply_markup=actions(session, choices))
 
 
@@ -253,12 +258,24 @@ async def planned_callback(callback: types.CallbackQuery):
             await _card(message, session, plan.planned_id)
         elif action == 'cancel' and session.step == 'card' and session.record.status == 'pending':
             advance(session, 'cancel')
-            await message.answer('Отменить этот платёж?', reply_markup=actions(session, [('Да, отменить', 'cancel_confirm'), ('Вернуться', 'backcard')]))
+            prompt = 'Отменить этот платёж и остановить серию?' if session.record.repeat_rule else 'Отменить этот платёж?'
+            await message.answer(prompt, reply_markup=actions(session, [('Да, отменить', 'cancel_confirm'), ('Вернуться', 'backcard')]))
         elif action == 'backcard' and session.record:
             await _card(message, session, session.record.planned_id)
         elif action == 'cancel_confirm' and session.step == 'cancel':
             plan = await run_blocking(plans.cancel_plan, session.record.planned_id, session.record.revision)
             await _card(message, session, plan.planned_id)
+        elif action == 'repeat' and session.step == 'card':
+            from services.planned_recurrence import RULES
+            advance(session, 'repeat')
+            choices = [(label, key) for key, label in RULES.items()] if session.record.status == 'pending' else []
+            choices += [('Выключить повторение', 'once'), ('Назад', 'backcard')]
+            await message.answer('Как часто создавать следующий платёж?', reply_markup=actions(session, choices))
+        elif action in {'weekly', 'monthly', 'once'} and session.step == 'repeat':
+            from services.planned_recurrence import set_recurrence
+            record = session.record
+            await run_blocking(set_recurrence, record.planned_id, record.revision, '' if action == 'once' else action)
+            await _card(message, session, record.planned_id)
         elif action == 'snooze' and session.step == 'card':
             await _snooze_menu(message, session)
         elif action in {'tomorrow', 'week', 'custom'} and session.step == 'snooze':

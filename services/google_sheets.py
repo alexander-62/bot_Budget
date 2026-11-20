@@ -43,23 +43,39 @@ def get_spreadsheet_url() -> str:
     return f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/edit"
 
 
-def atomic_append_and_update(spreadsheet, append_sheet, values, update_sheet, row_number, updated_values):
-    """One Sheets transaction: either both changes apply or neither does.
+def _sheet_cells(items):
+    return [{"userEnteredValue": {"numberValue": value} if isinstance(value, (int, float))
+             else {"stringValue": str(value)}} if value is not None else {} for value in items]
 
-    Explicit stringValue prevents formula interpretation of user-controlled text.
-    The caller owns serialization and must re-read persistent state after an
-    ambiguous network error instead of blindly re-appending.
-    """
-    def cells(items):
-        return [{"userEnteredValue": {"numberValue": value} if isinstance(value, (int, float))
-                 else {"stringValue": str(value)}} for value in items]
 
-    return spreadsheet.batch_update({"requests": [
-        {"appendCells": {"sheetId": append_sheet.id, "rows": [{"values": cells(values)}],
+def update_cells(sheet, row_number, values):
+    return {"updateCells": {"start": {"sheetId": sheet.id, "rowIndex": row_number - 1, "columnIndex": 0},
+                            "rows": [{"values": _sheet_cells(values)}], "fields": "userEnteredValue"}}
+
+
+def transaction_guard(key):
+    """Unique metadata ID acts as a write-once guard in a Sheets batch."""
+    from hashlib import sha256
+    return 1 + int.from_bytes(sha256(key.encode()).digest()[:8], "big") % (2**31 - 1)
+
+
+def guarded_batch(spreadsheet, requests, *, guard=None):
+    if guard:
+        key, metadata_id = guard
+        requests = [{"createDeveloperMetadata": {"developerMetadata": {
+            "metadataId": metadata_id, "metadataKey": "budget_bot_transaction",
+            "metadataValue": key, "location": {"spreadsheet": True}, "visibility": "DOCUMENT",
+        }}}] + requests
+    return spreadsheet.batch_update({"requests": requests})
+
+
+def atomic_append_and_update(spreadsheet, append_sheet, values, update_sheet, row_number, updated_values, *, guard=None):
+    """Apply both writes atomically, with explicit literal strings."""
+    return guarded_batch(spreadsheet, [
+        {"appendCells": {"sheetId": append_sheet.id, "rows": [{"values": _sheet_cells(values)}],
                          "fields": "userEnteredValue"}},
-        {"updateCells": {"start": {"sheetId": update_sheet.id, "rowIndex": row_number - 1, "columnIndex": 0},
-                         "rows": [{"values": cells(updated_values)}], "fields": "userEnteredValue"}},
-    ]})
+        update_cells(update_sheet, row_number, updated_values),
+    ], guard=guard)
 
 
 def find_worksheet_case_insensitive(
