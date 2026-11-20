@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 import re
 from uuid import uuid4
@@ -123,14 +123,19 @@ def write_expense(
     amount: str,
     comment: str = "",
     money_source: str = "",
+    *,
+    expense_date: date | None = None,
 ) -> SavedExpense:
     if TRACK_MONEY_SOURCE:
         validate_money_source(money_source)
     spreadsheet = get_spreadsheet()
     worksheet = find_worksheet_case_insensitive(spreadsheet, EXPENSES_SHEET_NAME)
     current = datetime.now(ZoneInfo(BOT_TIMEZONE))
-    today = current.strftime("%Y-%m-%d")
-    month_key = get_current_month_key(current.date())
+    actual_date = expense_date or current.date()
+    if actual_date > current.date():
+        raise ValueError("Дата фактической оплаты не может быть в будущем.")
+    today = actual_date.isoformat()
+    month_key = get_current_month_key(actual_date)
     numeric_amount = float(amount.replace(" ", "").replace(",", "."))
     expense_id = uuid4().hex
 
@@ -327,3 +332,26 @@ def _normalize_amount_for_compare(value: str) -> Decimal:
     if not normalized:
         return Decimal("0")
     return Decimal(normalized).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+
+def write_planned_payment(planned_ws, planned_row, planned_values, *, expense_id,
+                          expense_date, username, category, subcategory, amount,
+                          comment='', money_source=''):
+    """Append an actual expense and close its plan in one atomic Sheets batch.
+
+    Called only while the planned-expense mutation lock is held. Stable payment
+    identity and the paid marker are committed together, so reading the plan
+    after an ambiguous response is sufficient to recover without duplicating.
+    """
+    from services.google_sheets import atomic_append_and_update
+    if TRACK_MONEY_SOURCE:
+        validate_money_source(money_source)
+    values = [expense_date.isoformat(), get_current_month_key(expense_date), username,
+              category, subcategory, float(amount.replace(' ', '').replace(',', '.')),
+              comment, expense_id]
+    if TRACK_MONEY_SOURCE:
+        values.append(money_source)
+    spreadsheet = get_spreadsheet()
+    expenses_ws = find_worksheet_case_insensitive(spreadsheet, EXPENSES_SHEET_NAME)
+    atomic_append_and_update(spreadsheet, expenses_ws, values, planned_ws, planned_row, planned_values)
+    clear_budget_snapshot_cache()

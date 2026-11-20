@@ -43,6 +43,25 @@ def get_spreadsheet_url() -> str:
     return f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/edit"
 
 
+def atomic_append_and_update(spreadsheet, append_sheet, values, update_sheet, row_number, updated_values):
+    """One Sheets transaction: either both changes apply or neither does.
+
+    Explicit stringValue prevents formula interpretation of user-controlled text.
+    The caller owns serialization and must re-read persistent state after an
+    ambiguous network error instead of blindly re-appending.
+    """
+    def cells(items):
+        return [{"userEnteredValue": {"numberValue": value} if isinstance(value, (int, float))
+                 else {"stringValue": str(value)}} for value in items]
+
+    return spreadsheet.batch_update({"requests": [
+        {"appendCells": {"sheetId": append_sheet.id, "rows": [{"values": cells(values)}],
+                         "fields": "userEnteredValue"}},
+        {"updateCells": {"start": {"sheetId": update_sheet.id, "rowIndex": row_number - 1, "columnIndex": 0},
+                         "rows": [{"values": cells(updated_values)}], "fields": "userEnteredValue"}},
+    ]})
+
+
 def find_worksheet_case_insensitive(
     spreadsheet: gspread.Spreadsheet, worksheet_name: str
 ) -> gspread.Worksheet:
@@ -66,7 +85,7 @@ def open_profile_spreadsheet(profile, credentials_path):
 def validate_profile_connection(profile, credentials_path):
     # Import lazily: startup validation itself uses the cached adapter above.
     from services.startup_validation import get_worksheet_rules, validate_worksheet_header
-    from constants import MONEY_SOURCES_SHEET_NAME
+    from constants import MONEY_SOURCES_SHEET_NAME, PLANNED_EXPENSES_SHEET_NAME
     spreadsheet = open_profile_spreadsheet(profile, credentials_path)
     worksheets = {normalize_text(ws.title): ws for ws in spreadsheet.worksheets()}
     from services.budget_settings import BudgetSettings, read_settings, SETTINGS_SHEET
@@ -74,10 +93,19 @@ def validate_profile_connection(profile, credentials_path):
     for rule in get_worksheet_rules(profile, limits_enabled=settings.monthly_limits_enabled):
         worksheet = worksheets.get(normalize_text(rule.name))
         if worksheet is None:
+            if rule.name == PLANNED_EXPENSES_SHEET_NAME:
+                # Enabling the feature creates its empty sheet on next startup.
+                continue
             raise ValueError(f"Не найден лист «{rule.name}». Создайте его по шаблону.")
         if rule.required_headers:
+            if rule.name == PLANNED_EXPENSES_SHEET_NAME and not any(
+                any(str(cell).strip() for cell in row) for row in worksheet.get_all_values()
+            ):
+                # Startup can initialize an existing, genuinely empty sheet too.
+                continue
             try:
-                validate_worksheet_header(rule, worksheet.row_values(1), legacy=profile.legacy, track_money_source=profile.track_money_source)
+                validate_worksheet_header(rule, worksheet.row_values(1), legacy=profile.legacy, track_money_source=profile.track_money_source,
+                                          planned_expenses_enabled=getattr(profile, "planned_expenses_enabled", False))
             except ValueError:
                 raise ValueError(f"Лист «{rule.name}»: проверьте обязательные заголовки и порядок столбцов по шаблону.") from None
         if rule.name == MONEY_SOURCES_SHEET_NAME:

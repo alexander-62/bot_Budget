@@ -15,19 +15,21 @@ class BudgetSettingsMiddleware(BaseMiddleware):
                 await event.answer("Не удалось загрузить настройки бюджета. Проверьте лист «Настройки» и повторите попытку.")
                 return
         # Menu navigation abandons any unfinished flow before router filters run.
-        from constants import MENU_EXPENSES_TEXT, MENU_SHOPPING_TEXT, MENU_VIEW_EXPENSES_TEXT, MENU_VIEW_LIMITS_TEXT, MENU_WEBAPP_TEXT
+        from constants import MENU_EXPENSES_TEXT, MENU_SHOPPING_TEXT, MENU_VIEW_EXPENSES_TEXT, MENU_VIEW_LIMITS_TEXT, MENU_WEBAPP_TEXT, MENU_PLANNED_TEXT
         text = getattr(event, "text", None)
         callback = getattr(event, "data", None)
-        navigation = text in {"/start", "/settings", "Настройки", "⚙️ Настройки"} or (
+        navigation = text in {"/start", "/settings", "/planned", "Настройки", "⚙️ Настройки"} or (
             isinstance(text, str) and any(text.endswith(label) for label in
-            (MENU_EXPENSES_TEXT, MENU_SHOPPING_TEXT, MENU_VIEW_EXPENSES_TEXT, MENU_VIEW_LIMITS_TEXT, MENU_WEBAPP_TEXT, "Расходы за месяц")))
+            (MENU_EXPENSES_TEXT, MENU_SHOPPING_TEXT, MENU_VIEW_EXPENSES_TEXT, MENU_VIEW_LIMITS_TEXT, MENU_WEBAPP_TEXT, MENU_PLANNED_TEXT, "Расходы за месяц")))
         if navigation or (isinstance(callback, str) and callback.startswith("main:")):
             user = getattr(event, "from_user", None)
             if user:
                 from state.settings_session import pop_session
                 from state.expense_session import pop_session as pop_expense
                 from state.shopping_session import pop_session as pop_shopping
+                from state.planned_session import pop_session as pop_planned
                 pop_session(user.id)
                 pop_expense(user.id)
                 pop_shopping(user.id)
+                pop_planned(user.id)
         return await handler(event, data)

@@ -91,6 +91,7 @@ WEBAPP_PORT = int(_get_config_value("WEBAPP_PORT", "8080"))
 WEBAPP_URL = _get_config_value("WEBAPP_URL", f"http://{WEBAPP_HOST}:{WEBAPP_PORT}/webapp")
 CURRENCY = PROFILE.currency  # Initial migration seed only; presentation reads Sheet settings.
 TRACK_MONEY_SOURCE = PROFILE.track_money_source
+PLANNED_EXPENSES_ENABLED = PROFILE.planned_expenses_enabled
 BOT_TIMEZONE = PROFILE.timezone
 PROFILE_RUNTIME_DIR = PROFILE.runtime_dir(BASE_DIR)
 if not PROFILE.uses_legacy_config:

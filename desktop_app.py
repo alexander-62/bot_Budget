@@ -74,7 +74,7 @@ def runtime_settings_changed(candidate, original, token):
     if original is None:
         return False
     effective = editable_profile(original)
-    fields = ("spreadsheet_id", "currency", "timezone", "credentials_file", "track_money_source")
+    fields = ("spreadsheet_id", "currency", "timezone", "credentials_file", "track_money_source", "planned_expenses_enabled")
     return any(getattr(candidate, key) != getattr(effective, key) for key in fields) or bool(
         token and token != get_profile_token(original, BASE_DIR))
 
@@ -965,8 +965,14 @@ class BudgetPanel(ctk.CTk):
             form, text="Учитывать источник денег", variable=source_tracking,
             font=ctk.CTkFont(family=UI_FONT, size=13),
         ).grid(row=14, column=0, sticky="w", pady=(16, 4))
+        planned_enabled = ctk.BooleanVar(value=profile.planned_expenses_enabled if profile else False)
+        self._editor_planned_expenses = planned_enabled
+        ctk.CTkCheckBox(
+            form, text="Будущие траты и напоминания", variable=planned_enabled,
+            font=ctk.CTkFont(family=UI_FONT, size=13),
+        ).grid(row=15, column=0, sticky="w", pady=(10, 4))
         notice = self._label(form, "Перед сохранением проверим подключение. При изменении рабочих параметров запущенный бот автоматически перезапустится.", 12, MUTED, wraplength=440)
-        notice.grid(row=15, column=0, sticky="ew", pady=14)
+        notice.grid(row=16, column=0, sticky="ew", pady=14)
         save = ctk.CTkButton(editor, text="Проверить и сохранить", height=38)
         save.grid(row=1, column=0, sticky="ew", padx=26, pady=(0, 8))
         cancel = ctk.CTkButton(editor, text="Отмена", fg_color=CARD, command=cancel_editor)
@@ -979,6 +985,7 @@ class BudgetPanel(ctk.CTk):
                 values["spreadsheet_id"] = normalize_spreadsheet_id(values["spreadsheet_id"])
                 token = values.pop("token")
                 values["track_money_source"] = bool(source_tracking.get())
+                values["planned_expenses_enabled"] = bool(planned_enabled.get())
                 candidate = replace(editable, **values) if profile else BotProfile(**values)
             except Exception:
                 notice.configure(text="Проверьте поля: название, ID профиля и ссылка на таблицу обязательны.", text_color=RED)

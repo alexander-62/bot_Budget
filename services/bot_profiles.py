@@ -28,6 +28,7 @@ class BotProfile:
     track_money_source: bool = False
     image_file: str = ""
     managed_settings: bool = False
+    planned_expenses_enabled: bool = False
 
     @property
     def uses_legacy_config(self) -> bool:
@@ -38,6 +39,8 @@ class BotProfile:
 
 
 def _validate(profile: BotProfile) -> None:
+    if type(profile.planned_expenses_enabled) is not bool:
+        raise ValueError("planned_expenses_enabled must be a boolean.")
     if type(profile.managed_settings) is not bool:
         raise ValueError("managed_settings must be a boolean.")
     if not isinstance(profile.image_file, str):

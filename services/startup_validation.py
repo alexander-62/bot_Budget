@@ -35,6 +35,10 @@ _WORKSHEET_RULES = (
 
 def get_worksheet_rules(profile, *, limits_enabled=True):
     rules = tuple(rule for rule in _WORKSHEET_RULES if limits_enabled or rule.name != LIMITS_SHEET_NAME)
+    if getattr(profile, "planned_expenses_enabled", False):
+        from constants import PLANNED_EXPENSES_SHEET_NAME
+        from services.planned_expenses import HEADERS
+        rules += (WorksheetRule(PLANNED_EXPENSES_SHEET_NAME, tuple(normalize_text(v) for v in HEADERS)),)
     return rules + ((WorksheetRule(MONEY_SOURCES_SHEET_NAME, ("источник", "активно", "порядок")),) if profile.track_money_source else ())
 
 
@@ -71,6 +75,12 @@ def _validate_google_sheets_schema() -> None:
         raise StartupValidationError("Не удалось загрузить лист «Настройки». Проверьте доступ и значения параметров.") from error
     except Exception as error:
         raise StartupValidationError("Не удалось загрузить лист «Настройки». Проверьте доступ и значения параметров.") from error
+    if getattr(PROFILE, "planned_expenses_enabled", False):
+        from services.planned_expenses import ensure_planned_sheet
+        try:
+            ensure_planned_sheet(spreadsheet)
+        except ValueError as error:
+            raise StartupValidationError(str(error)) from None
     for rule in get_worksheet_rules(PROFILE, limits_enabled=settings.monthly_limits_enabled):
         worksheet = find_worksheet_case_insensitive(spreadsheet, rule.name)
         if not rule.required_headers:
@@ -81,7 +91,8 @@ def _validate_google_sheets_schema() -> None:
             raise StartupValidationError(f"Worksheet '{rule.name}' is empty.")
 
         try:
-            validate_worksheet_header(rule, rows[0], legacy=PROFILE.legacy, track_money_source=PROFILE.track_money_source)
+            validate_worksheet_header(rule, rows[0], legacy=PROFILE.legacy, track_money_source=PROFILE.track_money_source,
+                                      planned_expenses_enabled=getattr(PROFILE, "planned_expenses_enabled", False))
             if rule.name == MONEY_SOURCES_SHEET_NAME:
                 from services.money_sources import parse_money_sources
                 if not parse_money_sources(rows):
@@ -90,11 +101,12 @@ def _validate_google_sheets_schema() -> None:
             raise StartupValidationError(str(error)) from None
 
 
-def validate_worksheet_header(rule: WorksheetRule, values, *, legacy: bool, track_money_source: bool = False) -> None:
+def validate_worksheet_header(rule: WorksheetRule, values, *, legacy: bool, track_money_source: bool = False,
+                              planned_expenses_enabled: bool = False) -> None:
     """Position-based services require header order, not merely presence."""
     header = tuple(normalize_text(value) for value in values)
     expected = rule.required_headers
-    if rule.name == EXPENSES_SHEET_NAME and (not legacy or track_money_source):
+    if rule.name == EXPENSES_SHEET_NAME and (not legacy or track_money_source or planned_expenses_enabled):
         expected += ("комментарий", "expense_id")
         if track_money_source:
             expected += ("источник",)
