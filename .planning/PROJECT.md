@@ -41,12 +41,12 @@ Users can record expenses in Telegram quickly and reliably, and the household ge
 - Runtime smoke check passes under installed dependencies.
 
 ### Active
-- [x] Phase 14: independent pictures for each bot in the local panel; native selection/reset, managed assets and safe profile switching (IMG-01 through IMG-04).
-- [x] Phase 13: per-profile optional source of funds, own-sheet source list, expense entry/edit/persistence and desktop toggle (SRC-01 through SRC-06).
-- [x] Profile registry, legacy compatibility, secret isolation and per-profile currencies/access (phase 9).
-- [x] Independent lifecycle, health identity and selective Windows autostart (phase 10).
-- [x] Profile selection, add/edit/connect validation and management in the desktop panel (phase 11).
-- [x] Fake-based integration verification and business onboarding documentation (phase 12).
+
+- [x] Future plans behind an isolated profile flag, shared Telegram CRUD/history and optional amount/date — Phase 18.
+- [x] Atomic full-payment confirmation with actual date/amount/source, persistent identity and uncertain-outcome protection — Phase 19.
+- [x] Independent per-creator reminders and subscriptions, durable day/week delivery buckets — Phase 20.
+
+Implementation is complete; operator rollout and live acceptance are tracked in UAT.md.
 
 ### Out of Scope
 
@@ -116,7 +116,7 @@ After each milestone:
 4. Update Context with current state.
 
 ---
-*Last updated: 2026-07-09 for phase 8 daily digest*
+*Last updated: 2026-11-20 for v1.8.0 planned expenses*
 
 ## v1.6.0 implementation result ? 2026-10-21
 
@@ -137,3 +137,7 @@ User authorized planning and implementation in GSD phases 15–17: Sheet-backed 
 ## v1.7.0 implementation result — 2026-10-22
 
 Phases 15–17 complete; 180 tests across 33 modules pass with one Windows DPAPI skip. Sheet settings migrate once and update without restart. Telegram category creation and optional limits are implemented. No live data changed; operator rollout pending.
+
+## v1.8.0 implementation result — 2026-11-20
+
+Phases 18–20 implemented and verified on feat/planned-expenses using installed GSD workflows/CLI. 228 tests / 39 modules, zero module failures, one Windows DPAPI skip; 40 new tests cover plans, financial idempotency, reminders, panel and Telegram integration. No new runtime dependency. Feature defaults off; new sheet initializes only when enabled. Actual expense append and paid marker use one atomic Sheets batch after a persistent processing intent. Unknown outcomes block re-append until verified. Live rollout remains pending operator acceptance.

@@ -22,3 +22,7 @@ Independent panel pictures implemented and verified: managed local imports, sele
 ## v1.7.0 Budget settings — implementation complete, 2026-10-22
 
 Phases 15–17 implemented and verified (180 tests, 33 modules; one Windows DPAPI skip). Source is in main at 50a4ec2, followed by 055b906. Live migration and operator Telegram acceptance were not verified here and remain rollout tasks. Planning snapshots archived under milestones/v1.7.0-*.md.
+
+## v1.8.0 Будущие траты — implementation complete, 2026-11-20
+
+Phases 18–20 and all 13 requirements are implemented and locally verified on feat/planned-expenses. Runtime 1.8.0. Evidence: 228 tests / 39 modules, zero module failures, one Windows DPAPI skip; 40 new tests. GSD plan validators and fingerprinted phase reports pass. Publication and deployment have not been performed; UAT.md tracks live operator acceptance. Feature is disabled by default, one-off/full-payment only.
