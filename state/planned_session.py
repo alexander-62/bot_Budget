@@ -16,6 +16,7 @@ class PlannedSession:
     history: bool = False
     page: int = 0
     owner_id: int = 0
+    owner_username: str | None = None
     updated_at: float = field(default_factory=monotonic)
 
 

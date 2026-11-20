@@ -268,7 +268,7 @@ def _assert_pending(plan, expected_revision):
         raise StalePlanError('Платёж уже изменён или закрыт. Откройте карточку заново.')
 
 
-def pay_plan(planned_id, expected_revision, *, amount, payment_date, actor, money_source=''):
+def pay_plan(planned_id, expected_revision, *, amount, payment_date, actor, actor_id='', money_source=''):
     """At most one payment per plan under the one-writer runtime contract."""
     from services.expenses import write_planned_payment
     with _lock:
@@ -287,9 +287,11 @@ def pay_plan(planned_id, expected_revision, *, amount, payment_date, actor, mone
         actual_date = parse_date(payment_date, payment=True)
         validate_category(plan.category, plan.subcategory)
         expense_id = 'planned-' + plan.planned_id
+        if plan.payment_history:
+            expense_id += '-' + plan.revision
         updated = replace(plan, status='paid', revision=uuid4().hex[:12],
                           expense_id=expense_id, actual_amount=actual_amount,
-                          actual_date=actual_date, paid_by=actor)
+                          actual_date=actual_date, paid_by=actor, paid_by_id=str(actor_id))
         # Persistent intent is written BEFORE dispatch. A timeout can leave the
         # original request still in flight; a read of pending alone must never
         # authorize a second append, including after a process restart.

@@ -91,6 +91,9 @@ async def _card(message, session, planned_id):
             if plan.remind_on:
                 text += f'\nНапоминание отложено до {plan.remind_on}'
     elif plan.status == 'paid':
+        from services.planned_payment_changes import can_correct
+        if can_correct(plan, session.owner_id, session.owner_username):
+            choices = [('Исправить оплату', 'correct'), ('Отменить проведение', 'undo')] + choices
         text += f'\n\n✅ Оплачено: {format_money_exact(plan.actual_amount)} · {plan.actual_date}\nЗаписал: {escape(plan.paid_by)}\nID фактической траты: <code>{escape(plan.expense_id)}</code>'
     elif plan.status == 'processing':
         text += '\n\n⏳ Проверяем результат оплаты. Повторная запись заблокирована до выяснения результата. Если статус не меняется, обратитесь к оператору.'
@@ -162,6 +165,7 @@ async def open_planned(message: types.Message):
         return
     clear_other_flows(message.from_user.id)
     session = create_session(message.from_user.id, message.chat.id)
+    session.owner_username = message.from_user.username
     try:
         await _list(message, session)
     except Exception as error:
@@ -191,6 +195,7 @@ async def planned_callback(callback: types.CallbackQuery):
             return
         clear_other_flows(user_id)
         session = create_session(user_id, message.chat.id)
+        session.owner_username = callback.from_user.username
         try:
             await _card(message, session, parts[2])
             if parts[1] == 'snooze':
@@ -212,6 +217,7 @@ async def planned_callback(callback: types.CallbackQuery):
             await _list(message, session)
         elif action == 'new':
             session = create_session(user_id, message.chat.id)
+            session.owner_username = callback.from_user.username
             await _prompt(message, session, 'title')
         elif action == 'history' and session.step == 'list':
             session.history, session.page = not session.history, 0
@@ -271,6 +277,8 @@ async def planned_callback(callback: types.CallbackQuery):
         elif action == 'cancel_confirm' and session.step == 'cancel':
             plan = await run_blocking(plans.cancel_plan, session.record.planned_id, session.record.revision)
             await _card(message, session, plan.planned_id)
+        elif action in {'correct', 'undo', 'cor_amount', 'cor_date', 'cor_confirm', 'undo_confirm'}:
+            await _correction_action(message, session, action, callback.from_user)
         elif action == 'repeat' and session.step == 'card':
             from services.planned_recurrence import RULES
             advance(session, 'repeat')
@@ -297,7 +305,7 @@ async def planned_callback(callback: types.CallbackQuery):
     except Exception as error:
         await _failure(message, error)
 
-        if action == 'pay_confirm' and session.record:
+        if action in {'pay_confirm', 'cor_confirm', 'undo_confirm'} and session.record:
             # A network error can still mean the atomic batch committed. Show
             # the persisted result and its safe check action, never re-append.
             try:
@@ -328,6 +336,12 @@ async def planned_text(message: types.Message):
     try:
         if session.step in {'title', 'amount', 'due_date', 'comment'} and message.text:
             await _accept_value(message, session, message.text)
+        elif session.step in {'cor_amount', 'cor_date'} and message.text:
+            if session.step == 'cor_amount':
+                session.values['correct_amount'] = plans.parse_amount(message.text)
+            else:
+                session.values['correct_date'] = plans.parse_date(message.text, payment=True)
+            await _correction_preview(message, session)
         elif session.step == 'snooze_date' and message.text:
             await _save_snooze(message, session, message.text)
         elif session.step.startswith('pay_') and message.text:
@@ -385,7 +399,7 @@ async def _payment_action(message, session, action, user):
         actor = f'@{user.username}' if user.username else str(user.id)
         paid = await run_blocking(plans.pay_plan, session.record.planned_id, session.record.revision,
             amount=session.values['payment_amount'], payment_date=session.values['payment_date'],
-            actor=actor, money_source=session.values.get('money_source', ''))
+            actor=actor, actor_id=user.id, money_source=session.values.get('money_source', ''))
         await message.answer('✅ Оплата подтверждена. Фактическая трата записана.')
         await _card(message, session, paid.planned_id)
     else:
@@ -417,3 +431,38 @@ async def _snooze_menu(message, session):
 async def _save_snooze(message, session, value):
     plan = await run_blocking(plans.snooze_plan, session.record.planned_id, session.record.revision, session.owner_id, value)
     await _card(message, session, plan.planned_id)
+
+
+async def _correction_preview(message, session):
+    advance(session, 'cor_preview')
+    await message.answer(
+        f"Фактическая сумма: {format_money_exact(session.values['correct_amount'])}\n"
+        f"Дата оплаты: {session.values['correct_date']}",
+        reply_markup=actions(session, [('Изменить сумму', 'cor_amount'), ('Изменить дату', 'cor_date'),
+                                      ('Сохранить исправление', 'cor_confirm'), ('Назад', 'backcard')]))
+
+
+async def _correction_action(message, session, action, user):
+    from services.planned_payment_changes import can_correct, correct_payment
+
+    record = session.record
+    if not record or record.status != 'paid' or not can_correct(record, user.id, user.username):
+        raise ValueError('Исправить оплату может тот, кто её подтвердил.')
+    if action == 'correct' and session.step == 'card':
+        session.values.update(correct_amount=record.actual_amount, correct_date=record.actual_date)
+        await _correction_preview(message, session)
+    elif action in {'cor_amount', 'cor_date'} and session.step == 'cor_preview':
+        advance(session, action)
+        prompt = 'Введите фактическую сумму.' if action == 'cor_amount' else 'Введите дату оплаты ДД.ММ.ГГГГ.'
+        await message.answer(prompt, reply_markup=actions(session, [('Назад', 'backcard')]))
+    elif action == 'undo' and session.step == 'card':
+        advance(session, 'undo')
+        await message.answer('Убрать фактическую трату из отчётов и снова открыть план?',
+                             reply_markup=actions(session, [('Да, отменить проведение', 'undo_confirm'), ('Назад', 'backcard')]))
+    elif (action, session.step) in {('cor_confirm', 'cor_preview'), ('undo_confirm', 'undo')}:
+        await run_blocking(correct_payment, record.planned_id, record.revision,
+                           user_id=user.id, username=user.username, undo=action == 'undo_confirm',
+                           amount=session.values.get('correct_amount'), payment_date=session.values.get('correct_date'))
+        await _card(message, session, record.planned_id)
+    else:
+        raise ValueError('Шаг исправления устарел. Откройте карточку заново.')
