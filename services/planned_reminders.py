@@ -87,7 +87,14 @@ def build_reminder_jobs(now=None):
         user_id = int(plan.creator_id)
         if not recipients.get(user_id, False):
             continue
-        if plan.due_date:
+        if plan.remind_on:
+            if plan.remind_on > day.isoformat():
+                continue
+            bucket = 'snooze:' + day.isoformat()
+            amount = format_money_exact(plan.amount) if plan.amount else 'сумма пока неизвестна'
+            text = f'📅 Отложенное напоминание\n\n{escape(plan.title)}\n{amount}\nДата оплаты: {plan.due_date or "без даты"}'
+            jobs.append(ReminderJob(user_id, text, ((plan.planned_id, plan.revision, bucket),), (plan.title,)))
+        elif plan.due_date:
             due = datetime.strptime(plan.due_date, '%Y-%m-%d').date()
             if due > day + timedelta(days=1):
                 continue
@@ -100,7 +107,7 @@ def build_reminder_jobs(now=None):
             jobs.append(ReminderJob(user_id, text, ((plan.planned_id, plan.revision, bucket),), (plan.title,)))
         elif day.weekday() == 0:
             bucket = 'week:' + day.strftime('%G-W%V')
-            if plan.last_reminder != bucket:
+            if plan.last_reminder not in {bucket, 'day:' + day.isoformat()}:
                 weekly.setdefault(user_id, []).append((plan, bucket))
     for user_id, entries in weekly.items():
         for offset in range(0, len(entries), 8):
@@ -123,4 +130,7 @@ def mark_delivered(job):
             except ValueError:
                 continue
             if current.revision == revision and current.status == 'pending':
+                if bucket.startswith('snooze:'):
+                    current = replace(current, remind_on='')
+                    bucket = bucket.replace('snooze:', 'day:', 1)
                 plans._write(ws, row, replace(current, last_reminder=bucket))

@@ -88,6 +88,14 @@ class PlannedExpensesTests(PlannedFixture, unittest.TestCase):
             plans.ensure_planned_sheet(book)
         self.assertEqual(ws.rows[1], ['Данные'])
 
+    def test_legacy_schema_upgrade_keeps_rows_and_is_idempotent(self):
+        self.ws.rows = [list(plans.LEGACY_HEADERS), ['legacy-id', 'Платёж']]
+        plans.ensure_planned_sheet(self.book)
+        plans.ensure_planned_sheet(self.book)
+        self.assertEqual(self.ws.rows[0], list(plans.HEADERS))
+        self.assertEqual(self.ws.rows[1], ['legacy-id', 'Платёж'])
+        self.assertEqual(len(self.ws.writes), 1)
+
     def test_amount_and_date_validation(self):
         for bad in ('NaN','Infinity','0','-1','0,001'):
             with self.subTest(bad=bad), self.assertRaises(ValueError):

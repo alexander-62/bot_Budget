@@ -98,10 +98,11 @@ def validate_profile_connection(profile, credentials_path):
                 continue
             raise ValueError(f"Не найден лист «{rule.name}». Создайте его по шаблону.")
         if rule.required_headers:
-            if rule.name == PLANNED_EXPENSES_SHEET_NAME and not any(
-                any(str(cell).strip() for cell in row) for row in worksheet.get_all_values()
-            ):
-                # Startup can initialize an existing, genuinely empty sheet too.
+            if rule.name == PLANNED_EXPENSES_SHEET_NAME:
+                from services.planned_expenses import validate_planned_header
+                header = worksheet.row_values(1)
+                if header or any(any(str(cell).strip() for cell in row) for row in worksheet.get_all_values()):
+                    validate_planned_header(header, allow_legacy=True)
                 continue
             try:
                 validate_worksheet_header(rule, worksheet.row_values(1), legacy=profile.legacy, track_money_source=profile.track_money_source,

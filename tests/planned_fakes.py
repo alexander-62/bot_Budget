@@ -17,11 +17,18 @@ class Sheet:
 
     def update(self, range_name, values, **kwargs):
         self.writes.append((range_name, deepcopy(values), kwargs))
-        n = int(re.search(r'\d+', range_name).group()) - 1
+        match = re.match(r'([A-Z]+)([0-9]+)', range_name)
+        column = 0
+        for character in match[1]:
+            column = column * 26 + ord(character) - ord('A') + 1
+        column -= 1
+        n = int(match[2]) - 1
         while len(self.rows) < n + len(values):
             self.rows.append([])
         for i, row in enumerate(values):
-            self.rows[n+i] = list(row)
+            target = self.rows[n+i]
+            target.extend([''] * max(0, column + len(row) - len(target)))
+            target[column:column + len(row)] = row
 
     def update_cell(self, row, column, value):
         while len(self.rows) < row:

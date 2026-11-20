@@ -1,5 +1,6 @@
 """Telegram UI for shared future expenses. Persisted IDs reopen after restart."""
 import logging
+from datetime import timedelta
 from html import escape
 
 from aiogram import Router, types
@@ -84,6 +85,10 @@ async def _card(message, session, planned_id):
     choices = [('К списку', 'list')]
     if plan.status == 'pending':
         choices = [('Оплачено', 'pay'), ('Изменить', 'edit'), ('Отменить платёж', 'cancel')] + choices
+        if plan.creator_id == str(session.owner_id):
+            choices.insert(2, ('Напомнить позже', 'snooze'))
+            if plan.remind_on:
+                text += f'\nНапоминание отложено до {plan.remind_on}'
     elif plan.status == 'paid':
         text += f'\n\n✅ Оплачено: {format_money_exact(plan.actual_amount)} · {plan.actual_date}\nЗаписал: {escape(plan.paid_by)}\nID фактической траты: <code>{escape(plan.expense_id)}</code>'
     elif plan.status == 'processing':
@@ -172,7 +177,7 @@ async def planned_callback(callback: types.CallbackQuery):
         await callback.answer('Некорректная кнопка.', show_alert=True)
         return
     user_id, message = callback.from_user.id, callback.message
-    if parts[1] == 'open':
+    if parts[1] in {'open', 'snooze'}:
         await callback.answer()
         # Reminders are personal; do not expose a budget card in a group chat.
         if message.chat.type != 'private':
@@ -182,6 +187,8 @@ async def planned_callback(callback: types.CallbackQuery):
         session = create_session(user_id, message.chat.id)
         try:
             await _card(message, session, parts[2])
+            if parts[1] == 'snooze':
+                await _snooze_menu(message, session)
         except Exception as error:
             await _failure(message, error)
         return
@@ -252,6 +259,14 @@ async def planned_callback(callback: types.CallbackQuery):
         elif action == 'cancel_confirm' and session.step == 'cancel':
             plan = await run_blocking(plans.cancel_plan, session.record.planned_id, session.record.revision)
             await _card(message, session, plan.planned_id)
+        elif action == 'snooze' and session.step == 'card':
+            await _snooze_menu(message, session)
+        elif action in {'tomorrow', 'week', 'custom'} and session.step == 'snooze':
+            if action == 'custom':
+                advance(session, 'snooze_date')
+                await message.answer('Введите дату напоминания ДД.ММ.ГГГГ.', reply_markup=actions(session, [('Назад', 'backcard')]))
+            else:
+                await _save_snooze(message, session, (plans.today() + timedelta(days=1 if action == 'tomorrow' else 7)).isoformat())
         elif action.startswith('pay'):
             await _payment_action(message, session, action, callback.from_user)
         else:
@@ -290,6 +305,8 @@ async def planned_text(message: types.Message):
     try:
         if session.step in {'title', 'amount', 'due_date', 'comment'} and message.text:
             await _accept_value(message, session, message.text)
+        elif session.step == 'snooze_date' and message.text:
+            await _save_snooze(message, session, message.text)
         elif session.step.startswith('pay_') and message.text:
             await _payment_text(message, session)
         else:
@@ -364,3 +381,16 @@ async def _payment_text(message, session):
         await _payment_preview(message, session)
     else:
         await message.answer('Выберите действие кнопкой или отправьте /cancel.')
+
+
+async def _snooze_menu(message, session):
+    if session.record.status != 'pending' or session.record.creator_id != str(session.owner_id):
+        raise ValueError('Отложить напоминание может создатель открытого платежа.')
+    advance(session, 'snooze')
+    await message.answer('Когда напомнить о платеже?', reply_markup=actions(session, [
+        ('Завтра', 'tomorrow'), ('Через неделю', 'week'), ('Выбрать дату', 'custom'), ('Назад', 'backcard')]))
+
+
+async def _save_snooze(message, session, value):
+    plan = await run_blocking(plans.snooze_plan, session.record.planned_id, session.record.revision, session.owner_id, value)
+    await _card(message, session, plan.planned_id)

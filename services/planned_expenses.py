@@ -9,18 +9,25 @@ from threading import RLock
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
+from gspread.utils import rowcol_to_a1
+
 from config import BOT_TIMEZONE, PLANNED_EXPENSES_ENABLED
 from constants import PLANNED_EXPENSES_SHEET_NAME
 from services.expenses import parse_amount as _parse_amount
 from services.money import parse_sheet_number
 from services.google_sheets import get_spreadsheet, normalize_text
 
-HEADERS = (
+LEGACY_HEADERS = (
     'planned_id', 'Название', 'Категория', 'Подкатегория', 'Плановая сумма',
     'Дата оплаты', 'Комментарий', 'creator_id', 'Создатель', 'Статус',
     'revision', 'created_at', 'expense_id', 'Фактическая сумма',
     'Фактическая дата', 'paid_by', 'last_reminder',
 )
+HEADERS = LEGACY_HEADERS + (
+    'remind_on', 'repeat_rule', 'repeat_anchor', 'paid_by_id',
+    'payment_history', 'payment_guard', 'payment_source',
+)
+LAST_COLUMN = rowcol_to_a1(1, len(HEADERS))[:-1]
 _lock = RLock()
 
 
@@ -43,6 +50,13 @@ class PlannedExpense:
     actual_date: str = ''
     paid_by: str = ''
     last_reminder: str = ''
+    remind_on: str = ''
+    repeat_rule: str = ''
+    repeat_anchor: str = ''
+    paid_by_id: str = ''
+    payment_history: str = ''
+    payment_guard: str = ''
+    payment_source: str = ''
 
     def values(self):
         return [str(getattr(self, f.name)) for f in fields(self)]
@@ -116,22 +130,39 @@ def validate_category(category, subcategory):
         raise ValueError('Категория или подкатегория больше не активна. Выберите другую.')
 
 
-def _validate_header(ws):
-    actual = ws.row_values(1)
-    if [normalize_text(v) for v in actual[:len(HEADERS)]] != [normalize_text(v) for v in HEADERS]:
-        raise ValueError('Лист «Будущие_траты»: проверьте заголовки по шаблону.')
+def validate_planned_header(values, *, allow_legacy=False):
+    actual = tuple(normalize_text(value) for value in values)
+    expected = tuple(normalize_text(value) for value in HEADERS)
+    if actual[:len(expected)] == expected:
+        return
+    legacy = expected[:len(LEGACY_HEADERS)]
+    if allow_legacy and actual == legacy:
+        return
+    raise ValueError('Лист «Будущие_траты»: проверьте заголовки по шаблону.')
 
 
 def ensure_planned_sheet(spreadsheet):
-    """Initialize only an absent/empty sheet, never replace existing contents."""
+    """Add only missing headers to an empty sheet or a known legacy layout."""
     with _lock:
         matches = [ws for ws in spreadsheet.worksheets()
                    if normalize_text(ws.title) == normalize_text(PLANNED_EXPENSES_SHEET_NAME)]
         ws = matches[0] if matches else spreadsheet.add_worksheet(
             title=PLANNED_EXPENSES_SHEET_NAME, rows=1000, cols=len(HEADERS))
-        if not any(any(str(v).strip() for v in r) for r in ws.get_all_values()):
-            ws.update(range_name='A1:Q1', values=[list(HEADERS)], value_input_option='RAW')
-        _validate_header(ws)
+        header = ws.row_values(1)
+        if not header and not any(any(str(v).strip() for v in r) for r in ws.get_all_values()):
+            start = 1
+        else:
+            validate_planned_header(header, allow_legacy=True)
+            if len(header) >= len(HEADERS):
+                return ws
+            start = len(LEGACY_HEADERS) + 1
+            if any(any(str(value).strip() for value in row[start - 1:len(HEADERS)])
+                   for row in ws.get_all_values()[1:]):
+                raise ValueError('Лист «Будущие_траты»: новые служебные столбцы уже заняты.')
+        if getattr(ws, 'col_count', len(HEADERS)) < len(HEADERS):
+            ws.resize(cols=len(HEADERS))
+        ws.update(range_name=f'{rowcol_to_a1(1, start)}:{LAST_COLUMN}1',
+                  values=[list(HEADERS[start - 1:])], value_input_option='RAW')
         return ws
 
 
@@ -139,7 +170,7 @@ def _worksheet():
     require_enabled()
     from services.google_sheets import find_worksheet_case_insensitive
     ws = find_worksheet_case_insensitive(get_spreadsheet(), PLANNED_EXPENSES_SHEET_NAME)
-    _validate_header(ws)
+    validate_planned_header(ws.row_values(1))
     return ws
 
 
@@ -153,8 +184,9 @@ def _read(ws):
         plan = PlannedExpense(*row[:len(HEADERS)])
         if not plan.planned_id or plan.planned_id in seen or plan.status not in {'pending', 'processing', 'paid', 'cancelled'}:
             raise ValueError('Лист «Будущие_траты»: некорректный или повторный ID/статус.')
-        if plan.due_date:
-            parse_date(plan.due_date)
+        # Canonicalize dates from older rows or the sheet's display locale.
+        plan = replace(plan, due_date=parse_date(plan.due_date, optional=True),
+                       remind_on=parse_date(plan.remind_on, optional=True))
         seen.add(plan.planned_id)
         result.append((row_number, plan))
     return result
@@ -168,7 +200,7 @@ def _find(ws, planned_id):
 
 
 def _write(ws, row_number, plan):
-    ws.update(range_name=f'A{row_number}:Q{row_number}', values=[plan.values()], value_input_option='RAW')
+    ws.update(range_name=f'A{row_number}:{LAST_COLUMN}{row_number}', values=[plan.values()], value_input_option='RAW')
 
 
 def get_plan(planned_id):
@@ -199,7 +231,7 @@ def create_plan(*, planned_id=None, creator_id, creator, **values):
         plan = PlannedExpense(stable_id, **cleaned, creator_id=str(creator_id), creator=creator,
                               revision=uuid4().hex[:12],
                               created_at=datetime.now(ZoneInfo(BOT_TIMEZONE)).isoformat())
-        ws.append_row(plan.values(), value_input_option='RAW', table_range='A:Q')
+        ws.append_row(plan.values(), value_input_option='RAW', table_range=f'A:{LAST_COLUMN}')
         return plan
 
 
@@ -274,4 +306,19 @@ def pay_plan(planned_id, expected_revision, *, amount, payment_date, actor, mone
                 # A definite rejection means the atomic batch made no change.
                 _write(ws, row, replace(plan, revision=uuid4().hex[:12]))
             raise
+        return updated
+
+
+def snooze_plan(planned_id, expected_revision, user_id, date_value):
+    remind_on = parse_date(date_value)
+    if remind_on <= today().isoformat():
+        raise ValueError('Выберите дату напоминания позже сегодняшней.')
+    with _lock:
+        ws = _worksheet()
+        row, plan = _find(ws, planned_id)
+        _assert_pending(plan, expected_revision)
+        if plan.creator_id != str(user_id):
+            raise ValueError('Отложить напоминание может создатель платежа.')
+        updated = replace(plan, remind_on=remind_on, revision=uuid4().hex[:12])
+        _write(ws, row, updated)
         return updated

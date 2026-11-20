@@ -81,7 +81,8 @@ async def send_due_planned_reminders(bot: Bot) -> int:
     sent = 0
     for job in jobs:
         markup = InlineKeyboardMarkup(inline_keyboard=[[
-            InlineKeyboardButton(text=title[:60], callback_data=f"fut:open:{item[0]}")
+            InlineKeyboardButton(text=title[:60], callback_data=f"fut:open:{item[0]}"),
+            InlineKeyboardButton(text="Напомнить позже", callback_data=f"fut:snooze:{item[0]}")
         ] for item, title in zip(job.items, job.titles)])
         try:
             await bot.send_message(chat_id=job.chat_id, text=job.text, reply_markup=markup)

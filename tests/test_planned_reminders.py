@@ -65,6 +65,23 @@ class PlannedReminderTests(unittest.TestCase):
         self.assertEqual(reminders.build_reminder_jobs(self.now()),[])
         self.assertEqual(self.users.rows[1][2],'FALSE')
 
+    def test_snooze_preserves_due_date_and_delivers_once_even_for_undated_items(self):
+        plan = self.create(due_date='2026-11-20')
+        undated = self.create(title='Без даты')
+        with patch.object(plans, 'today', return_value=self.now().date()):
+            with self.assertRaises(ValueError):
+                plans.snooze_plan(plan.planned_id, plan.revision, 202, '2026-11-22')
+            for item in (plan, undated):
+                plans.snooze_plan(item.planned_id, item.revision, 101, '2026-11-22')
+        self.assertEqual(plans.get_plan(plan.planned_id).due_date, plan.due_date)
+        self.assertEqual(reminders.build_reminder_jobs(self.now(day='2026-11-21')), [])
+        current = self.now(day='2026-11-23')
+        jobs = reminders.build_reminder_jobs(current)
+        self.assertEqual(len(jobs), 2)
+        for job in jobs:
+            reminders.mark_delivered(job)
+        self.assertEqual(reminders.build_reminder_jobs(current), [])
+
     def test_timezone_conversion_and_paid_cancelled_processing_exclusion(self):
         p=self.create(due_date='2026-11-20')
         self.assertEqual(reminders.build_reminder_jobs(self.now(clock='18:29',tz='UTC')),[])
