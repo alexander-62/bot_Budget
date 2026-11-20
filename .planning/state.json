@@ -17,6 +17,31 @@
       "number": "20",
       "name": "Напоминания",
       "status": "complete"
+    },
+    {
+      "number": "21",
+      "name": "Отложить напоминание",
+      "status": "complete"
+    },
+    {
+      "number": "22",
+      "name": "Повторяющиеся платежи",
+      "status": "complete"
+    },
+    {
+      "number": "23",
+      "name": "Прогноз расходов",
+      "status": "complete"
+    },
+    {
+      "number": "24",
+      "name": "Исправление оплаты",
+      "status": "complete"
+    },
+    {
+      "number": "25",
+      "name": "Восстановление оплаты",
+      "status": "complete"
     }
   ],
   "next": {
@@ -24,5 +49,5 @@
     "label": "Start a new milestone",
     "reason": "All phases complete — start a new milestone"
   },
-  "updated_at": "2026-11-20T20:06:25.115Z"
+  "updated_at": "2026-11-20T23:19:59.621Z"
 }

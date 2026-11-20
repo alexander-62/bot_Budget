@@ -33,14 +33,26 @@ result: [pending]
 expected: Turning off the profile flag hides the menu and stops reminders/old callbacks. Re-enabling restores saved plans and history.
 result: [pending]
 
+### 5. Snooze, recurrence and forecast
+expected: Set a custom reminder date and confirm the payment due date stays the same. Set a weekly or monthly schedule and review the forecast over the next seven days and the rest of the month.
+result: [pending]
+
+### 6. Correct an expense or reopen a plan
+expected: As the payer, edit the date and amount, then undo the posting. Check totals, open status and history before paying again.
+result: [pending]
+
+### 7. Recover a payment in the panel
+expected: Open the selected budget's recovery window. Inspect an unfinished attempt and stop the corresponding bot before confirming recovery. Check that exactly one actual expense exists.
+result: [pending]
+
 ## Summary
 
-total: 4
+total: 7
 passed: 0
 issues: 0
-pending: 4
+pending: 7
 skipped: 0
 
 ## Automated Evidence
 
-228 tests in 39 isolated modules, zero module failures; one Windows DPAPI skip. All 40 new behavioral checks passed. Phase-specific reports under phases/18-*, phases/19-*, phases/20-* record exact source fingerprints. Automated failure injections cover ambiguous and delayed financial responses without any live financial writes.
+243 tests in 43 isolated modules, with 242 passed and one Windows DPAPI skip. Phase-specific reports under phases/18-*, phases/19-*, phases/20-* record exact source fingerprints. Automated failure injections cover ambiguous and delayed financial responses without any live financial writes.

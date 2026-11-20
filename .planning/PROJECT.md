@@ -12,7 +12,7 @@ Users can record expenses in Telegram quickly and reliably, and the household ge
 
 ## Current Milestone: v1.8.0 Будущие траты
 
-**Goal:** Заранее записать разовый платёж, получить напоминание и подтвердить оплату с созданием фактической траты.
+**Goal:** Заранее записать разовый или повторяющийся платёж, получить напоминание и подтвердить оплату с созданием фактической траты.
 
 **Target features:**
 - Персональный флаг профиля planned_expenses_enabled, по умолчанию false, переключатель в панели.
@@ -46,7 +46,9 @@ Users can record expenses in Telegram quickly and reliably, and the household ge
 - [x] Atomic full-payment confirmation with actual date/amount/source, persistent identity and uncertain-outcome protection — Phase 19.
 - [x] Independent per-creator reminders and subscriptions, durable day/week delivery buckets — Phase 20.
 
-Implementation is complete; operator rollout and live acceptance are tracked in UAT.md.
+- [x] Snooze, recurrence, forecast, payment correction, and panel recovery — Phases 21–25.
+
+Operator rollout and live acceptance are tracked in UAT.md.
 
 ### Out of Scope
 

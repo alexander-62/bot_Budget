@@ -25,7 +25,7 @@ covered_files:
   - tests/test_planned_expenses.py
   - tests/test_planned_flow.py
   - tests/test_planned_profile.py
-covered_digest: "v4:sha256:664037cae762c8890d8d16408d9731e5c00162480a55d8bba3171540e14ad726"
+covered_digest: "v4:sha256:8833c8cd7e6f820869956bc17766a0a5bc126cba4f39e933c7e011557b0a0a32"
 ---
 
 # Phase 18: Планирование трат — Verification
@@ -49,3 +49,5 @@ Full isolated suite: 228 tests / 39 modules, zero module failures, one Windows D
 ## Practical Limits and Rollout
 
 The verification verdict covers the local implementation with fake Google Sheets and Telegram transports, plus actual Tk UI widgets under Xorg. It does not attest that a real bot is deployed. Operator live checks are pending in `.planning/UAT.md`. Single-process writer assumption and manual resolution of persistently unknown financial outcomes are documented. Telegram delivery is at-least-once when acknowledgement persistence fails.
+
+Follow-up regression (phases 21–25): 243 tests across 43 modules ran under Xorg dummy. One Windows DPAPI test was skipped. All remaining tests passed. The fingerprint covers the integrated sources.

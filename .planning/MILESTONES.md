@@ -26,3 +26,7 @@ Phases 15–17 implemented and verified (180 tests, 33 modules; one Windows DPAP
 ## v1.8.0 Будущие траты — implementation complete, 2026-11-20
 
 Phases 18–20 and all 13 requirements are implemented and locally verified on feat/planned-expenses. Runtime 1.8.0. Evidence: 228 tests / 39 modules, zero module failures, one Windows DPAPI skip; 40 new tests. GSD plan validators and fingerprinted phase reports pass. Publication and deployment have not been performed; UAT.md tracks live operator acceptance. Feature is disabled by default, one-off/full-payment only.
+
+### v1.8.0 follow-up phases 21–25
+
+Added snooze, recurring plans, forecast, payment correction, and panel recovery. Local validation finished with 242 passes and one Windows DPAPI skip across 43 modules.
