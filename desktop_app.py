@@ -187,6 +187,54 @@ def profile_currency_operation(context, currency):
         return context, None, "Не удалось прочитать или сохранить валюту. Запустите обновлённого бота для переноса настроек и проверьте таблицу. Закройте и откройте это окно для повторной загрузки."
 
 
+
+def profile_payment_recovery(context, item=None):
+    from config import get_credentials_path
+    from services.google_sheets import open_profile_spreadsheet
+    from services.planned_recovery import inspect_recovery, recover_payment
+
+    bot_lock = start_lock = None
+    try:
+        target = context["profile"]
+        current = next((profile for profile in list_profiles(BASE_DIR) if profile.id == target.id), None)
+        if current is None or not current.planned_expenses_enabled:
+            return context, [], "Будущие траты выключены или профиль удалён."
+        profile = editable_profile(current)
+        if profile != editable_profile(target):
+            return context, [], "Настройки профиля изменились. Откройте окно повторно."
+        path = Path(profile.credentials_file) if profile.credentials_file else get_credentials_path()
+        if not path.is_absolute():
+            path = BASE_DIR / path
+
+        runtime = profile.runtime_dir(BASE_DIR)
+        start_lock = ProcessLock(runtime / ".bot-start.lock")
+        bot_lock = ProcessLock(runtime / ".bot.lock")
+        if item is not None:
+            if not start_lock.acquire() or not bot_lock.acquire():
+                return context, None, "Остановите выбранного бота перед восстановлением."
+            selected = next((entry for entry in list_profiles(BASE_DIR) if entry.id == target.id), None)
+            if selected != current:
+                return context, None, "Настройки профиля изменились. Откройте окно повторно."
+        book = open_profile_spreadsheet(profile, path)
+        if item is not None:
+            recover_payment(book, item)
+        records = inspect_recovery(book)
+        message = "Оплата восстановлена." if item is not None else (
+            "Выберите платёж для проверки." if records else "Платежей с неопределённым результатом нет.")
+        return context, records, message
+    except ValueError as error:
+        from services.planned_expenses import StalePlanError
+        message = str(error) if isinstance(error, StalePlanError) else "Не удалось подтвердить результат. Проверьте доступ и структуру таблицы."
+        return context, None, message
+    except Exception:
+        return context, None, "Google Sheets не подтвердил результат. Проверьте список ещё раз."
+    finally:
+        if bot_lock is not None:
+            bot_lock.release()
+        if start_lock is not None:
+            start_lock.release()
+
+
 def save_profile_picture(profile_id, path, base_dir=None):
     base_dir = BASE_DIR if base_dir is None else base_dir
     image_file = import_profile_image(Path(path), base_dir) if path else ""
@@ -676,6 +724,9 @@ class BudgetPanel(ctk.CTk):
                 kind, generation = kind
                 if generation != self._generation:
                     continue
+            if kind == "payment-recovery":
+                self._finish_payment_recovery(result)
+                continue
             if kind == "budget-currency":
                 self._finish_budget_currency(result, error)
                 continue
@@ -910,6 +961,80 @@ class BudgetPanel(ctk.CTk):
             context["choice"].configure(state="normal")
         context["button"].configure(state="normal" if context["settings"] is not None else "disabled")
 
+    def _show_payment_recovery(self, profile):
+        existing = getattr(self, "_payment_recovery_editor", None)
+        if existing is not None and existing.winfo_exists():
+            existing.lift()
+            return
+        editor = self._payment_recovery_editor = ctk.CTkToplevel(self, fg_color=BG)
+        editor.title(f"Проверка оплат — {profile.name}")
+        editor.geometry("520x360")
+        label = self._label(editor, "Загружаем платежи…", 13, wraplength=465)
+        label.pack(padx=20, pady=14)
+        choice = ctk.CTkOptionMenu(editor, values=["—"], state="disabled")
+        choice.pack(fill="x", padx=24, pady=10)
+        detail = self._label(editor, "", 13, wraplength=465)
+        detail.pack(padx=20, pady=10)
+        restore = ctk.CTkButton(editor, text="Восстановить оплату", state="disabled")
+        restore.pack(pady=8)
+        refresh = ctk.CTkButton(editor, text="Проверить снова")
+        refresh.pack(pady=8)
+        context = {"profile": profile, "editor": editor, "label": label, "choice": choice,
+                   "detail": detail, "restore": restore, "refresh": refresh, "items": {}}
+        self._payment_recovery_context = context
+
+        def invoke(item=None):
+            refresh.configure(state="disabled")
+            restore.configure(state="disabled", text="Восстановить оплату")
+            choice.configure(state="disabled")
+            self._submit("payment-recovery", profile_payment_recovery, context, item)
+
+        def selected(name):
+            item = context["items"].get(name)
+            context["armed"] = None
+            restore.configure(text="Восстановить оплату", state="normal" if item and item.recoverable else "disabled")
+            instructions = {
+                "found": "Трата уже найдена. Восстановление отметит план оплаченным.",
+                "retry": "Запись пока не найдена. Повтор будет проведён с прежними данными.",
+                "legacy": "Старая операция: пока запись отсутствует, её исход неизвестен.",
+                "conflict": "Данные расходятся. Сверьте платёж с таблицей.",
+            }
+            detail.configure(text=f"{item.amount} · {item.date}\n{instructions[item.state]}" if item else "")
+
+        def confirm():
+            item = context["items"].get(choice.get())
+            if item and item.recoverable:
+                if context.get("armed") == item:
+                    invoke(item)
+                else:
+                    context["armed"] = item
+                    restore.configure(text="Подтвердить восстановление")
+                    detail.configure(text="Остановите этого бота и подтвердите восстановление выбранной оплаты.")
+
+        context["selected"] = selected
+        choice.configure(command=selected)
+        restore.configure(command=confirm)
+        refresh.configure(command=invoke)
+        invoke()
+
+    def _finish_payment_recovery(self, result):
+        if not result:
+            return
+        context, items, message = result
+        if context is not getattr(self, "_payment_recovery_context", None) or not context["editor"].winfo_exists():
+            return
+        context["label"].configure(text=message)
+        context["refresh"].configure(state="normal")
+        if items is None:
+            items = list(context["items"].values())
+        index = {f"{n}. {item.title[:42]}": item for n, item in enumerate(items, 1)}
+        context["items"] = index
+        choice = context["choice"]
+        values = list(index) or ["—"]
+        choice.configure(values=values, state="normal" if index else "disabled")
+        choice.set(values[0])
+        context["selected"](values[0])
+
     def _show_profile_editor(self, profile):
         if self._picture_busy:
             self.feedback.configure(text="Дождитесь сохранения картинки.", text_color=AMBER)
@@ -972,7 +1097,10 @@ class BudgetPanel(ctk.CTk):
             font=ctk.CTkFont(family=UI_FONT, size=13),
         ).grid(row=15, column=0, sticky="w", pady=(10, 4))
         notice = self._label(form, "Перед сохранением проверим подключение. При изменении рабочих параметров запущенный бот автоматически перезапустится.", 12, MUTED, wraplength=440)
-        notice.grid(row=16, column=0, sticky="ew", pady=14)
+        if profile and profile.planned_expenses_enabled:
+            ctk.CTkButton(form, text="Проверка и восстановление оплат",
+                          command=lambda: self._show_payment_recovery(profile)).grid(row=16, column=0, sticky="ew", pady=8)
+        notice.grid(row=17, column=0, sticky="ew", pady=14)
         save = ctk.CTkButton(editor, text="Проверить и сохранить", height=38)
         save.grid(row=1, column=0, sticky="ew", padx=26, pady=(0, 8))
         cancel = ctk.CTkButton(editor, text="Отмена", fg_color=CARD, command=cancel_editor)

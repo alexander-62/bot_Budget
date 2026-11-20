@@ -68,7 +68,16 @@ class Spreadsheet:
         return sheet
 
     def batch_update(self, body):
-        if self.batch_error_before:
+        append = any('appendCells' in request for request in body['requests'])
+        single_plan_update = not append and len(body['requests']) in {2, 4} and any(
+            request.get('createDeveloperMetadata', {}).get('developerMetadata', {}).get('metadataValue', '').startswith('plan-change:')
+            for request in body['requests']
+        )
+        target_ids = {request['updateCells']['start']['sheetId'] for request in body['requests'] if 'updateCells' in request}
+        if single_plan_update and len(target_ids) == 1:
+            self.apply_batch(body)
+            return {}
+        if self.batch_error_before and append:
             raise self.batch_error_before
         self.batches.append(deepcopy(body))
         if self.deferred_batch is False:

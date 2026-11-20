@@ -1,6 +1,5 @@
 from datetime import date
 import unittest
-from unittest.mock import patch
 
 import test_planned_expenses as fixtures
 from services import planned_expenses as plans, planned_recurrence as repeat
@@ -34,4 +33,17 @@ class RecurrenceTests(fixtures.PlannedFixture, unittest.TestCase):
         plan = repeat.set_recurrence(plan.planned_id, plan.revision, 'weekly')
         plans.cancel_plan(plan.planned_id, plan.revision)
         repeat.advance_due_series(date(2026, 11, 20))
+        self.assertEqual(plans.list_plans(), [])
+
+
+    def test_late_generation_cannot_resurrect_cancelled_series(self):
+        plan = self.create(due_date='2026-11-20')
+        plan = repeat.set_recurrence(plan.planned_id, plan.revision, 'weekly')
+        self.book.deferred_batch = False
+        with self.assertLogs(level='ERROR'):
+            repeat.advance_due_series(date(2026, 11, 20))
+        pending = self.book.deferred_batch
+        plans.cancel_plan(plan.planned_id, plan.revision)
+        with self.assertRaises(ValueError):
+            self.book.apply_batch(pending)
         self.assertEqual(plans.list_plans(), [])

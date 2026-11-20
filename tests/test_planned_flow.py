@@ -167,6 +167,31 @@ class PlannedFlowTests(unittest.IsolatedAsyncioTestCase):
         await self.click('prev')
         self.assertEqual(len(state.get_session(101).options),8)
 
+    async def test_snooze_repeat_forecast_and_payment_correction_buttons(self):
+        plan = await self.create('100', '2026-11-21')
+        await self.click('snooze')
+        await self.click('custom')
+        await self.text('25.11.2026')
+        self.assertEqual(state.get_session(101).record.remind_on, '2026-11-25')
+        await self.click('repeat')
+        await self.click('weekly')
+        self.assertEqual(state.get_session(101).record.repeat_rule, 'weekly')
+        await self.click('list')
+        await self.click('forecast')
+        self.assertIn('Прогноз будущих трат', self.replies[-1][0])
+        await self.click('', data=f'fut:open:{plan.planned_id}')
+        await self.click('pay')
+        await self.click('pay_confirm')
+        await self.click('correct')
+        await self.click('cor_amount')
+        await self.text('99,25')
+        await self.click('cor_confirm')
+        self.assertEqual(state.get_session(101).record.actual_amount, '99,25')
+        await self.click('undo')
+        await self.click('undo_confirm')
+        self.assertEqual(state.get_session(101).record.status, 'pending')
+        self.assertEqual(self.actual.rows[1], [''] * 8)
+
     async def test_real_dispatcher_navigates_from_old_flow_and_back_to_settings(self):
         from state.expense_session import create_session as expense_session, get_active_session
         from state.settings_session import get_session as settings_session

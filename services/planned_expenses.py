@@ -15,7 +15,7 @@ from config import BOT_TIMEZONE, PLANNED_EXPENSES_ENABLED
 from constants import PLANNED_EXPENSES_SHEET_NAME
 from services.expenses import parse_amount as _parse_amount
 from services.money import parse_sheet_number
-from services.google_sheets import get_spreadsheet, normalize_text
+from services.google_sheets import get_spreadsheet, guarded_batch, normalize_text, transaction_guard, update_cells
 
 LEGACY_HEADERS = (
     'planned_id', 'Название', 'Категория', 'Подкатегория', 'Плановая сумма',
@@ -199,16 +199,26 @@ def _find(ws, planned_id):
     raise ValueError('Будущая трата не найдена. Откройте список заново.')
 
 
-def _write(ws, row_number, plan):
-    ws.update(range_name=f'A{row_number}:{LAST_COLUMN}{row_number}', values=[plan.values()], value_input_option='RAW')
+def transition_guard(plan):
+    # A delayed mutation of this revision must compete with all newer actions
+    # based on the same snapshot, even if its HTTP request is still running.
+    key = f'plan-change:{plan.planned_id}:{plan.revision}'
+    return key, transaction_guard(key)
+
+
+def change_plan(ws, row, previous, updated):
+    guarded_batch(get_spreadsheet(), [update_cells(ws, row, updated.values())],
+                  guard=transition_guard(previous))
 
 
 def get_plan(planned_id):
     return _find(_worksheet(), planned_id)[1]
 
 
-def list_plans(*, history=False):
-    plans = [p for _, p in _read(_worksheet()) if (p.status not in {'pending', 'processing'}) == history]
+def list_plans(*, history=False, include_paid_series=False):
+    plans = [p for _, p in _read(_worksheet())
+             if (p.status not in {'pending', 'processing'}) == history
+             or (include_paid_series and p.status == 'paid' and p.repeat_rule)]
     if history:
         return sorted(plans, key=lambda p: p.created_at, reverse=True)
     current = today().isoformat()
@@ -249,7 +259,7 @@ def update_plan(planned_id, expected_revision, **values):
         if plan.repeat_rule == 'monthly' and cleaned['due_date'] != plan.due_date:
             anchor = str(date.fromisoformat(cleaned['due_date']).day)
         updated = replace(plan, **cleaned, repeat_anchor=anchor, revision=uuid4().hex[:12])
-        _write(ws, row, updated)
+        change_plan(ws, row, plan, updated)
         return updated
 
 
@@ -259,7 +269,7 @@ def cancel_plan(planned_id, expected_revision):
         row, plan = _find(ws, planned_id)
         _assert_pending(plan, expected_revision)
         updated = replace(plan, status='cancelled', revision=uuid4().hex[:12], repeat_rule='', repeat_anchor='')
-        _write(ws, row, updated)
+        change_plan(ws, row, plan, updated)
         return updated
 
 
@@ -268,52 +278,56 @@ def _assert_pending(plan, expected_revision):
         raise StalePlanError('Платёж уже изменён или закрыт. Откройте карточку заново.')
 
 
+def payment_updates(ws, row, plan):
+    """Write payment columns without overwriting a generated recurrence."""
+    values = plan.values()
+    return [update_cells(ws, row, values[start:end], column_index=start)
+            for start, end in ((9, 11), (12, 16), (20, 24))]
+
+
 def pay_plan(planned_id, expected_revision, *, amount, payment_date, actor, actor_id='', money_source=''):
-    """At most one payment per plan under the one-writer runtime contract."""
+    """Record the confirmed intention, then submit an idempotent financial batch."""
+    from gspread.exceptions import APIError
+    from config import TRACK_MONEY_SOURCE
     from services.expenses import write_planned_payment
+    from services.budget import clear_budget_snapshot_cache
+
     with _lock:
         ws = _worksheet()
         row, plan = _find(ws, planned_id)
         if plan.status == 'paid':
-            # Includes a successful batch whose HTTP response was lost.
-            from services.budget import clear_budget_snapshot_cache
             clear_budget_snapshot_cache()
             return plan
         if plan.status == 'processing':
-            raise ValueError('Результат предыдущей оплаты пока не подтверждён. Нажмите «Проверить результат». '
-                             'Повторная запись заблокирована; если статус не меняется, оператору нужно проверить таблицу.')
+            raise ValueError('Результат оплаты ещё проверяется. Оператор может открыть восстановление в панели.')
         _assert_pending(plan, expected_revision)
         actual_amount = parse_amount(amount)
         actual_date = parse_date(payment_date, payment=True)
         validate_category(plan.category, plan.subcategory)
-        expense_id = 'planned-' + plan.planned_id
-        if plan.payment_history:
-            expense_id += '-' + plan.revision
-        updated = replace(plan, status='paid', revision=uuid4().hex[:12],
-                          expense_id=expense_id, actual_amount=actual_amount,
-                          actual_date=actual_date, paid_by=actor, paid_by_id=str(actor_id))
-        # Persistent intent is written BEFORE dispatch. A timeout can leave the
-        # original request still in flight; a read of pending alone must never
-        # authorize a second append, including after a process restart.
-        from config import TRACK_MONEY_SOURCE
         if TRACK_MONEY_SOURCE:
             from services.money_sources import validate_money_source
             validate_money_source(money_source)
-        processing = replace(updated, status='processing', revision=plan.revision)
-        _write(ws, row, processing)
+        expense_id = 'planned-' + plan.planned_id
+        if plan.payment_history:
+            expense_id += '-' + plan.revision
+        processing = replace(plan, status='processing', expense_id=expense_id,
+                             actual_amount=actual_amount, actual_date=actual_date, paid_by=actor,
+                             paid_by_id=str(actor_id), payment_guard=plan.revision,
+                             payment_source=money_source if TRACK_MONEY_SOURCE else '')
+        spreadsheet = get_spreadsheet()
+        guarded_batch(spreadsheet, payment_updates(ws, row, processing), guard=transition_guard(plan))
+        paid = replace(processing, status='paid', revision=uuid4().hex[:12])
         try:
-            write_planned_payment(ws, row, updated.values(), expense_id=expense_id,
-                                  expense_date=date.fromisoformat(actual_date), username=actor,
-                                  category=plan.category, subcategory=plan.subcategory,
-                                  amount=actual_amount, comment=plan.title + (' — ' + plan.comment if plan.comment else ''),
-                                  money_source=money_source)
-        except Exception as error:
-            from gspread.exceptions import APIError
-            if isinstance(error, APIError) and 400 <= error.code < 500 and error.code != 408:
-                # A definite rejection means the atomic batch made no change.
-                _write(ws, row, replace(plan, revision=uuid4().hex[:12]))
+            write_planned_payment(ws, row, paid)
+        except APIError as error:
+            if 400 <= error.code < 500 and error.code != 408:
+                # A definitive rejection of this first financial request
+                # permits a fresh confirmation with a new revision.
+                current_row, current = _find(ws, planned_id)
+                if current.status == 'processing' and current.payment_guard == processing.payment_guard:
+                    guarded_batch(spreadsheet, payment_updates(ws, current_row, replace(plan, revision=uuid4().hex[:12])))
             raise
-        return updated
+        return paid
 
 
 def snooze_plan(planned_id, expected_revision, user_id, date_value):
@@ -327,5 +341,5 @@ def snooze_plan(planned_id, expected_revision, user_id, date_value):
         if plan.creator_id != str(user_id):
             raise ValueError('Отложить напоминание может создатель платежа.')
         updated = replace(plan, remind_on=remind_on, revision=uuid4().hex[:12])
-        _write(ws, row, updated)
+        change_plan(ws, row, plan, updated)
         return updated

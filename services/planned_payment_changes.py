@@ -7,13 +7,13 @@ from uuid import uuid4
 from constants import EXPENSES_SHEET_NAME
 from services import planned_expenses as plans
 from services.budget import clear_budget_snapshot_cache
-from services.google_sheets import find_worksheet_case_insensitive, guarded_batch, transaction_guard, update_cells
+from services.google_sheets import find_worksheet_case_insensitive, guarded_batch, update_cells
 
 
-def actual_row(sheet, expense_id):
+def actual_row(rows, expense_id):
     if not expense_id:
         raise ValueError('У платежа нет ID фактической траты.')
-    matches = [(index, row) for index, row in enumerate(sheet.get_all_values()[1:], 2)
+    matches = [(index, row) for index, row in enumerate(rows[1:], 2)
                if len(row) > 7 and row[7] == expense_id]
     if len(matches) > 1:
         raise ValueError('В таблице найдено несколько трат с этим ID. Проверьте таблицу.')
@@ -36,16 +36,21 @@ def correct_payment(planned_id, revision, *, user_id, username, amount=None, pay
             raise ValueError('Изменить оплату может тот, кто её подтвердил.')
         spreadsheet = plans.get_spreadsheet()
         expense_sheet = find_worksheet_case_insensitive(spreadsheet, EXPENSES_SHEET_NAME)
-        linked = actual_row(expense_sheet, plan.expense_id)
+        linked = actual_row(expense_sheet.get_all_values(), plan.expense_id)
         if not linked:
             raise ValueError('Связанная трата отсутствует. Проверьте её в таблице.')
         row_number, row = linked
         actual_amount = plans.parse_amount(row[5])
         actual_date = plans.parse_date(row[0], payment=True)
+        if (actual_amount != plans.parse_amount(plan.actual_amount)
+                or actual_date != plan.actual_date
+                or tuple(row[2:5]) != (plan.paid_by, plan.category, plan.subcategory)):
+            raise ValueError('Связанная трата уже изменена в таблице. Сверьте её с планом.')
         history = json.loads(plan.payment_history or '[]')
         history.append({'action': 'undo' if undo else 'edit', 'expense_id': plan.expense_id,
                         'amount': actual_amount, 'date': actual_date, 'actor_id': str(user_id),
-                        'at': datetime.now(timezone.utc).isoformat()})
+                        'at': datetime.now(timezone.utc).isoformat(), 'category': row[3], 'subcategory': row[4],
+                        'payer': row[2], 'comment': row[6], 'source': plan.payment_source})
         if undo:
             width = 9 if len(expense_sheet.row_values(1)) > 8 and expense_sheet.row_values(1)[8].lower() == 'источник' else 8
             requests = [update_cells(expense_sheet, row_number, [None] * width)]
@@ -66,8 +71,9 @@ def correct_payment(planned_id, revision, *, user_id, username, amount=None, pay
         if len(journal) > 45000:
             raise ValueError('Журнал изменений достиг предела ячейки Google Sheets.')
         updated = replace(updated, revision=uuid4().hex[:12], payment_history=journal)
-        key = f'correction:{plan.planned_id}:{plan.revision}'
-        requests.append(update_cells(planned_sheet, planned_row, updated.values()))
-        guarded_batch(spreadsheet, requests, guard=(key, transaction_guard(key)))
+        requests.extend(plans.payment_updates(planned_sheet, planned_row, updated))
+        if undo:
+            requests.append(update_cells(planned_sheet, planned_row, [''], column_index=16))
+        guarded_batch(spreadsheet, requests, guard=plans.transition_guard(plan))
         clear_budget_snapshot_cache()
         return updated

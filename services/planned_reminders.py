@@ -3,6 +3,7 @@ from dataclasses import dataclass, replace
 from datetime import datetime, time, timedelta
 from html import escape
 from zoneinfo import ZoneInfo
+from uuid import uuid4
 
 from config import BOT_TIMEZONE
 from constants import USERS_SHEET_NAME
@@ -131,6 +132,8 @@ def mark_delivered(job):
                 continue
             if current.revision == revision and current.status == 'pending':
                 if bucket.startswith('snooze:'):
-                    current = replace(current, remind_on='')
-                    bucket = bucket.replace('snooze:', 'day:', 1)
-                plans._write(ws, row, replace(current, last_reminder=bucket))
+                    updated = replace(current, remind_on='', revision=uuid4().hex[:12],
+                                      last_reminder=bucket.replace('snooze:', 'day:', 1))
+                    plans.change_plan(ws, row, current, updated)
+                else:
+                    ws.update_cell(row, plans.HEADERS.index('last_reminder') + 1, bucket)

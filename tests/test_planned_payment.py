@@ -23,7 +23,7 @@ class PlannedPaymentTests(fixtures.PlannedFixture, unittest.TestCase):
         self.assertEqual(self.expenses.rows[1][7], result.expense_id)
         self.assertEqual(plans.get_plan(p.planned_id).status, 'paid')
         self.assertEqual(len(self.book.batches), 1)
-        self.assertEqual(len(self.book.batches[0]['requests']), 2)
+        self.assertEqual(len(self.book.batches[0]['requests']), 5)
         self.assertEqual(plans.list_plans(), [])
 
     def test_double_click_and_two_users_do_not_duplicate(self):
@@ -95,7 +95,7 @@ class PlannedPaymentTests(fixtures.PlannedFixture, unittest.TestCase):
     def test_formula_like_text_is_explicit_string_value_in_atomic_write(self):
         p = self.create(title='=FORMULA()', comment='+comment')
         self.pay(p)
-        cells = self.book.batches[0]['requests'][0]['appendCells']['rows'][0]['values']
+        cells = self.book.batches[0]['requests'][1]['appendCells']['rows'][0]['values']
         self.assertEqual(cells[6]['userEnteredValue'], {'stringValue': '=FORMULA() — +comment'})
         self.assertIn('numberValue', cells[5]['userEnteredValue'])
 

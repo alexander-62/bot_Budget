@@ -19,3 +19,13 @@ class ForecastTests(fixtures.PlannedFixture, unittest.TestCase):
         self.assertIn('Просроченные: 30.00', message)
         self.assertIn('Без даты: 40.00', message)
         self.assertNotIn('100.00', message)
+
+
+    def test_forecast_projects_the_rest_of_the_current_month(self):
+        from services.planned_recurrence import set_recurrence
+        plan = self.create(due_date='2026-01-03', amount='10')
+        set_recurrence(plan.planned_id, plan.revision, 'weekly')
+        with patch.object(planned_forecast, 'format_money_exact', side_effect=lambda amount: f'{amount:.2f}'):
+            message = planned_forecast.forecast_message(date(2026, 1, 2))
+        self.assertIn('7 дней (до 08.01): 10.00', message)
+        self.assertIn('конца месяца (до 31.01): 50.00', message)

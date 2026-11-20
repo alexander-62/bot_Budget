@@ -103,8 +103,12 @@ async def _card(message, session, planned_id):
     from services.planned_recurrence import RULES
     if plan.repeat_rule:
         text += f'\nПовторение: {RULES.get(plan.repeat_rule, "?")}'
-    if plan.status == 'pending' and plan.due_date or plan.status == 'paid' and plan.repeat_rule:
+    if (plan.status == 'pending' and plan.due_date) or (plan.status == 'paid' and plan.repeat_rule):
         choices.insert(-1, ('Повторение', 'repeat'))
+    if plan.payment_history:
+        import json
+        events = json.loads(plan.payment_history)
+        text += f'\nЗаписей в журнале исправлений: {len(events)}'
     await message.answer(text, reply_markup=actions(session, choices))
 
 

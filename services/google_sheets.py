@@ -69,11 +69,15 @@ def guarded_batch(spreadsheet, requests, *, guard=None):
     return spreadsheet.batch_update({"requests": requests})
 
 
+def append_cells(sheet, values):
+    return {"appendCells": {"sheetId": sheet.id, "rows": [{"values": _sheet_cells(values)}],
+                            "fields": "userEnteredValue"}}
+
+
 def atomic_append_and_update(spreadsheet, append_sheet, values, update_sheet, row_number, updated_values, *, guard=None, update_column=0):
     """Apply both writes atomically, with explicit literal strings."""
     return guarded_batch(spreadsheet, [
-        {"appendCells": {"sheetId": append_sheet.id, "rows": [{"values": _sheet_cells(values)}],
-                         "fields": "userEnteredValue"}},
+        append_cells(append_sheet, values),
         update_cells(update_sheet, row_number, updated_values, column_index=update_column),
     ], guard=guard)
 

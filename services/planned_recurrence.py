@@ -6,7 +6,7 @@ import logging
 from uuid import NAMESPACE_URL, uuid4, uuid5
 
 from services import planned_expenses as plans
-from services.google_sheets import atomic_append_and_update, transaction_guard
+from services.google_sheets import atomic_append_and_update
 
 RULES = {'weekly': 'Каждую неделю', 'monthly': 'Каждый месяц'}
 
@@ -23,7 +23,7 @@ def set_recurrence(planned_id, revision, rule):
             raise ValueError('Повторение можно задать только открытому платежу с датой.')
         anchor = str(date.fromisoformat(plan.due_date).day) if rule == 'monthly' else ''
         updated = replace(plan, repeat_rule=rule, repeat_anchor=anchor, revision=uuid4().hex[:12])
-        plans._write(ws, row, updated)
+        plans.change_plan(ws, row, plan, updated)
         return updated
 
 
@@ -64,8 +64,6 @@ def _roll_forward(ws, row, plan, due):
         plan.comment, plan.creator_id, plan.creator, revision=uuid4().hex[:12],
         created_at=plan.created_at, repeat_rule=plan.repeat_rule, repeat_anchor=plan.repeat_anchor,
     )
-    # Touch only the schedule columns. A delayed request must never restore
-    # payment status or any other fields from its older snapshot.
-    atomic_append_and_update(plans.get_spreadsheet(), ws, following.values(), ws, row, ['', ''],
-                             guard=(key, transaction_guard(key)),
-                             update_column=plans.HEADERS.index('repeat_rule'))
+    previous = replace(plan, repeat_rule='', repeat_anchor='', revision=uuid4().hex[:12])
+    atomic_append_and_update(plans.get_spreadsheet(), ws, following.values(), ws, row, previous.values(),
+                             guard=plans.transition_guard(plan))
