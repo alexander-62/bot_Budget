@@ -212,7 +212,9 @@ class SettingsFlowTests(unittest.IsolatedAsyncioTestCase):
         bot = Bot('123456:TEST_TOKEN')
         try:
             expense_session(101, 'enter_amount')
-            with patch('services.settings_middleware.settings_initialized', return_value=False):
+            with (patch('services.settings_middleware.settings_initialized', return_value=False),
+                  patch.object(Bot, 'edit_message_text', AsyncMock()),
+                  patch.object(Bot, 'delete_message', AsyncMock())):
                 await dp.feed_update(bot, Update(update_id=1, message=self.message('⚙️ Настройки')))
                 self.assertIsNone(expense_active(101))
                 await dp.feed_update(bot, Update(update_id=2, callback_query=self.callback('new')))

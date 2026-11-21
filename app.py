@@ -50,6 +50,10 @@ def create_dispatcher() -> Dispatcher:
         fsm_strategy=FSMStrategy.GLOBAL_USER,
     )
     from services.settings_middleware import BudgetSettingsMiddleware
+    from state.dialog_messages import DialogMessagesMiddleware
+    dialogs = DialogMessagesMiddleware()
+    dp.message.outer_middleware(dialogs)
+    dp.callback_query.outer_middleware(dialogs)
     dp.message.outer_middleware(BudgetSettingsMiddleware())
     dp.callback_query.outer_middleware(BudgetSettingsMiddleware())
     dp.include_router(planned_router)
@@ -104,15 +108,16 @@ async def start_web_server() -> web.AppRunner:
     return runner
 
 
-async def notify_startup(bot: Bot) -> None:
+async def notify_startup(bot: Bot, *, skip_chat_id: int | None = None) -> None:
     try:
         chat_ids = await run_blocking(get_allowed_chat_ids)
     except Exception:
         logging.exception("Не удалось загрузить chat_id пользователей для стартовой рассылки")
         return
 
+    chat_ids = [chat_id for chat_id in chat_ids if chat_id != skip_chat_id]
     if not chat_ids:
-        logging.info("Стартовая рассылка пропущена: в Users нет chat_id/user_id")
+        logging.info("Нет получателей общей стартовой рассылки")
         return
 
     sent = 0
@@ -126,7 +131,7 @@ async def notify_startup(bot: Bot) -> None:
     logging.info("Стартовая рассылка завершена: отправлено %s из %s", sent, len(chat_ids))
 
 
-async def notify_restart_complete(bot: Bot) -> None:
+async def notify_restart_complete(bot: Bot) -> int | None:
     if not RESTART_NOTICE_FILE.exists():
         return
 
@@ -149,8 +154,9 @@ async def notify_restart_complete(bot: Bot) -> None:
             logging.exception("Не удалось удалить marker перезапуска")
         return
 
+    prefix = "Обновление установлено. " if notice.get("updated") is True else ""
     try:
-        await bot.send_message(chat_id=chat_id, text=f"Бот снова запущен. Версия: {__version__}")
+        await bot.send_message(chat_id=chat_id, text=f"{prefix}Бот снова запущен. Версия: {__version__}")
     except Exception:
         logging.exception("Не удалось отправить сообщение о завершении перезапуска chat_id=%s", chat_id)
         return
@@ -159,6 +165,7 @@ async def notify_restart_complete(bot: Bot) -> None:
         RESTART_NOTICE_FILE.unlink()
     except Exception:
         logging.exception("Не удалось удалить marker перезапуска после отправки")
+    return chat_id
 
 
 async def main() -> None:
@@ -194,8 +201,8 @@ async def _run_bot() -> None:
     logging.info("Бот запущен. Версия: %s", __version__)
     digest_task = asyncio.create_task(run_daily_digest_scheduler(bot))
     try:
-        await notify_startup(bot)
-        await notify_restart_complete(bot)
+        restarted_chat_id = await notify_restart_complete(bot)
+        await notify_startup(bot, skip_chat_id=restarted_chat_id)
         await dp.start_polling(bot)
     finally:
         web_runner.app[RUNTIME_STATE_KEY]["polling_ready"] = False

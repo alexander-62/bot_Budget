@@ -17,6 +17,11 @@ This is an existing Python Telegram budget bot backed by Google Sheets.
 - Be especially careful in PowerShell: console output may display UTF-8 text as mojibake when the terminal code page or output encoding is wrong. Do not rewrite, "fix", or transliterate Russian text based only on garbled PowerShell display.
 - When reading or writing files from scripts or shell commands, specify UTF-8 explicitly where the tool supports it, for example `-Encoding UTF8` in PowerShell or `encoding="utf-8"` in Python. Avoid commands that silently use a legacy Windows code page for Cyrillic content.
 
+## Telegram UX
+
+- Use the shared lifecycle in `state/dialog_messages.py` for interactive Telegram messages. Keep one active step and retain meaningful results, user messages, and scheduled notifications. See [Telegram dialog rules](README.md#диалоги-в-telegram).
+- Normal and planned expenses have one optional user-facing comment. Use it as the planned expense description and carry it into the actual expense on payment. Preserve legacy descriptions and additional comments when reading existing data.
+
 ## Current Roadmap
 
 1. Cache Google Sheets adapter objects.

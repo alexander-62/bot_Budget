@@ -7,32 +7,18 @@ from aiogram import Router, types
 import config
 from config import TRACK_MONEY_SOURCE
 from constants import MENU_PLANNED_TEXT
-from keyboards.main import build_main_menu
-from keyboards.planned import actions
+from keyboards.planned import actions, open_plan_keyboard
 from services.access import check_access_message, check_access_callback
 from services.async_tools import run_blocking
 from services.budget import get_budget_limits, get_subcategories_for_category
 from services.money import format_money_exact
 from services import planned_expenses as plans
+from services.settings_middleware import abandon_sessions
+from state.dialog_messages import close_dialog, dialog_hint, dialog_result, dialog_step, is_current_action
 from state.planned_session import create_session, get_session, pop_session, advance
 
 router = Router()
 PAGE_SIZE = 8
-NAVIGATION = {'📊 Посмотреть лимиты', 'Посмотреть лимиты', '📊 Расходы за месяц', 'Расходы за месяц',
-              '🧾 Посмотреть траты', 'Посмотреть траты', '💸 Добавить трату', 'Добавить трату',
-              '🛒 Список Покупок', 'Список Покупок', '⚙️ Настройки', 'Настройки', '/settings', '/start',
-              '📅 Будущие траты', MENU_PLANNED_TEXT, '/planned', '🌐 Открыть Web App'}
-
-
-def clear_other_flows(user_id):
-    from state.expense_session import pop_session as pop_expense
-    from state.shopping_session import pop_session as pop_shopping
-    from state.settings_session import pop_session as pop_settings
-    from state.saved_expense_actions import finalize_saved_expense_action
-    pop_expense(user_id)
-    pop_shopping(user_id)
-    pop_settings(user_id)
-    finalize_saved_expense_action(user_id)
 
 
 def _snapshot(plan):
@@ -50,12 +36,11 @@ def _description(values):
     ])
 
 
-async def _failure(message, error):
+def _failure_text(error):
     if isinstance(error, ValueError):
-        await message.answer(escape(str(error)))
-    else:
-        logging.exception('Ошибка работы с будущими тратами')
-        await message.answer('Не удалось проверить или сохранить платёж. Повторите действие; сохранённый платёж не будет добавлен второй раз.')
+        return str(error)
+    logging.exception('Ошибка работы с будущими тратами')
+    return 'Не удалось проверить или сохранить платёж. Повторите действие позже.'
 
 
 async def _list(message, session):
@@ -77,7 +62,7 @@ async def _list(message, session):
     from services.planned_reminders import subscription_enabled
     enabled = await run_blocking(subscription_enabled, session.owner_id)
     choices.append(('🔔 Напоминания: включены' if enabled else '🔕 Напоминания: выключены', 'reminders'))
-    await message.answer(('История будущих трат' if session.history else '📅 Будущие траты')
+    await dialog_step(message, ('История будущих трат' if session.history else '📅 Будущие траты')
                          + (f' · страница {session.page + 1}' if records else '\nПока пусто.'), reply_markup=actions(session, choices))
 
 
@@ -86,11 +71,11 @@ async def _card(message, session, planned_id):
     await _render_card(message, session, plan)
 
 
-async def _render_card(message, session, plan, *, saved=False):
+async def _render_card(message, session, plan, *, outcome=''):
     session.record = plan
     session.values = _snapshot(plan)
     advance(session, 'card')
-    text = ('✅ Будущая трата сохранена.\n\n' if saved else '') + _description(session.values)
+    text = (f'{outcome}\n\n' if outcome else '') + _description(session.values)
     choices = [('К списку', 'list')]
     if plan.status == 'pending':
         choices = [('Оплачено', 'pay'), ('Изменить', 'edit'), ('Отменить платёж', 'cancel')] + choices
@@ -117,12 +102,16 @@ async def _render_card(message, session, plan, *, saved=False):
         import json
         events = json.loads(plan.payment_history)
         text += f'\nЗаписей в журнале исправлений: {len(events)}'
-    await message.answer(text, reply_markup=actions(session, choices))
+    keyboard = actions(session, choices)
+    if outcome:
+        await dialog_result(message, text, reply_markup=keyboard, retained_markup=open_plan_keyboard(plan.planned_id))
+    else:
+        await dialog_step(message, text, reply_markup=keyboard)
 
 
 async def _preview(message, session):
     advance(session, 'preview')
-    await message.answer('Проверьте будущую трату:\n\n' + _description(session.values),
+    await dialog_step(message, 'Проверьте будущую трату:\n\n' + _description(session.values),
                          reply_markup=actions(session, [('Сохранить', 'save'), ('Изменить', 'edit')]))
 
 
@@ -130,7 +119,7 @@ async def _categories(message, session):
     _, categories = await run_blocking(get_budget_limits)
     session.options = tuple(categories)
     advance(session, 'category')
-    await message.answer('Выберите категорию.' if categories else 'Активных категорий нет. Создайте категорию в настройках.',
+    await dialog_step(message, 'Выберите категорию.' if categories else 'Активных категорий нет. Создайте категорию в настройках.',
                          reply_markup=actions(session, [(v, f'cat{i}') for i, v in enumerate(categories)]))
 
 
@@ -154,7 +143,7 @@ async def _prompt(message, session, step):
         'due_date': [('Без даты', 'skip')],
         'comment': [('Убрать комментарий', 'skip')],
     }
-    await message.answer(prompts[step], reply_markup=actions(session, choices[step]))
+    await dialog_step(message, prompts[step], reply_markup=actions(session, choices[step]))
 
 
 async def _accept_value(message, session, value):
@@ -197,12 +186,12 @@ async def _save_new_plan(message, session):
     except Exception as error:
         if not isinstance(error, ValueError):
             logging.exception('Не удалось подтвердить сохранение будущей траты')
-        await message.answer(
+        await dialog_step(message,
             escape(str(error)) if isinstance(error, ValueError) else 'Не удалось подтвердить сохранение.',
             reply_markup=actions(session, [('Повторить сохранение', 'create_retry')]),
         )
         return
-    await _render_card(message, session, plan, saved=True)
+    await _render_card(message, session, plan, outcome='✅ Будущая трата сохранена.')
 
 
 @router.message(lambda m: m.text in {'📅 Будущие траты', MENU_PLANNED_TEXT, '/planned'})
@@ -210,15 +199,15 @@ async def open_planned(message: types.Message):
     if not await check_access_message(message):
         return
     if not config.PLANNED_EXPENSES_ENABLED:
-        await message.answer('Будущие траты выключены для этого бота.')
+        await dialog_step(message, 'Будущие траты выключены для этого бота.')
         return
-    clear_other_flows(message.from_user.id)
+    abandon_sessions(message.from_user.id)
     session = create_session(message.from_user.id, message.chat.id)
     session.owner_username = message.from_user.username
     try:
         await _list(message, session)
     except Exception as error:
-        await _failure(message, error)
+        await dialog_hint(message, escape(_failure_text(error)))
 
 
 @router.callback_query(lambda c: bool(c.data and c.data.startswith('fut:')))
@@ -226,9 +215,11 @@ async def planned_callback(callback: types.CallbackQuery):
     if not await check_access_callback(callback):
         return
     if not config.PLANNED_EXPENSES_ENABLED:
+        if isinstance(callback.message, types.Message) and is_current_action(callback.message, callback.data):
+            await close_dialog()
         await callback.answer('Будущие траты выключены.', show_alert=True)
         return
-    if callback.message is None:
+    if not isinstance(callback.message, types.Message):
         await callback.answer('Откройте список платежей заново.', show_alert=True)
         return
     parts = callback.data.split(':')
@@ -237,31 +228,36 @@ async def planned_callback(callback: types.CallbackQuery):
         return
     user_id, message = callback.from_user.id, callback.message
     if parts[1] in {'open', 'snooze'}:
-        await callback.answer()
         # Reminders are personal; do not expose a budget card in a group chat.
         if message.chat.type != 'private':
-            await message.answer('Откройте будущие траты в личном чате с ботом.')
+            await callback.answer('Откройте будущие траты в личном чате с ботом.', show_alert=True)
             return
-        clear_other_flows(user_id)
+        abandon_sessions(user_id)
         session = create_session(user_id, message.chat.id)
         session.owner_username = callback.from_user.username
         try:
-            await _card(message, session, parts[2])
+            plan = await run_blocking(plans.get_plan, parts[2])
             if parts[1] == 'snooze':
+                session.record = plan
                 await _snooze_menu(message, session)
+            else:
+                await _render_card(message, session, plan)
         except Exception as error:
-            await _failure(message, error)
+            pop_session(user_id)
+            await close_dialog()
+            await callback.answer(_failure_text(error)[:200], show_alert=True)
+        else:
+            await callback.answer()
         return
     session = get_session(user_id)
     if session is None or session.token != parts[1] or session.chat_id != message.chat.id:
         await callback.answer('Кнопка устарела. Откройте будущие траты заново.', show_alert=True)
         return
-    await callback.answer()
     action = parts[2]
     try:
         if action == 'close':
             pop_session(user_id)
-            await message.answer('Будущие траты закрыты.', reply_markup=build_main_menu())
+            await close_dialog()
         elif action == 'list':
             await _list(message, session)
         elif action == 'new' and session.step == 'list':
@@ -275,7 +271,7 @@ async def planned_callback(callback: types.CallbackQuery):
             from services.planned_forecast import forecast_message
             text = await run_blocking(forecast_message)
             advance(session, 'forecast')
-            await message.answer(text, reply_markup=actions(session, [('К списку', 'list')]))
+            await dialog_step(message, text, reply_markup=actions(session, [('К списку', 'list')]))
         elif action == 'reminders' and session.step == 'list':
             from services.planned_reminders import subscription_enabled, set_subscription
             enabled = await run_blocking(subscription_enabled, user_id)
@@ -290,7 +286,7 @@ async def planned_callback(callback: types.CallbackQuery):
             session.values['category'] = session.options[_index(action, 'cat', session.options)]
             session.options = tuple(await run_blocking(get_subcategories_for_category, session.values['category']))
             advance(session, 'subcategory')
-            await message.answer('Выберите подкатегорию.', reply_markup=actions(session, [(v, f'sub{i}') for i, v in enumerate(session.options)]))
+            await dialog_step(message, 'Выберите подкатегорию.', reply_markup=actions(session, [(v, f'sub{i}') for i, v in enumerate(session.options)]))
         elif action.startswith('sub') and session.step == 'subcategory':
             session.values['subcategory'] = session.options[_index(action, 'sub', session.options)]
             if session.editing:
@@ -313,7 +309,7 @@ async def planned_callback(callback: types.CallbackQuery):
             choices = [('Описание', 'title'), ('Сумму', 'amount'), ('Дату', 'due_date'), ('Категорию', 'category')]
             if session.record.comment:
                 choices.append(('Дополнительный комментарий', 'comment'))
-            await message.answer('Что изменить?', reply_markup=actions(session, choices))
+            await dialog_step(message, 'Что изменить?', reply_markup=actions(session, choices))
         elif action in {'title', 'amount', 'due_date', 'comment', 'category'} and session.step == 'edit':
             if action == 'category':
                 await _categories(message, session)
@@ -322,16 +318,16 @@ async def planned_callback(callback: types.CallbackQuery):
         elif action == 'save' and session.step == 'preview':
             plan = await run_blocking(plans.update_plan, session.record.planned_id, session.record.revision,
                                       **session.values)
-            await _render_card(message, session, plan, saved=True)
+            await _render_card(message, session, plan, outcome='✅ Будущая трата обновлена.')
         elif action == 'cancel' and session.step == 'card' and session.record.status == 'pending':
             advance(session, 'cancel')
             prompt = 'Отменить этот платёж и остановить серию?' if session.record.repeat_rule else 'Отменить этот платёж?'
-            await message.answer(prompt, reply_markup=actions(session, [('Да, отменить', 'cancel_confirm'), ('Вернуться', 'backcard')]))
+            await dialog_step(message, prompt, reply_markup=actions(session, [('Да, отменить', 'cancel_confirm'), ('Вернуться', 'backcard')]))
         elif action == 'backcard' and session.record:
             await _card(message, session, session.record.planned_id)
         elif action == 'cancel_confirm' and session.step == 'cancel':
             plan = await run_blocking(plans.cancel_plan, session.record.planned_id, session.record.revision)
-            await _card(message, session, plan.planned_id)
+            await _render_card(message, session, plan, outcome='Платёж отменён.')
         elif action in {'correct', 'undo', 'cor_amount', 'cor_date', 'cor_confirm', 'undo_confirm'}:
             await _correction_action(message, session, action, callback.from_user)
         elif action == 'repeat' and session.step == 'card':
@@ -339,18 +335,18 @@ async def planned_callback(callback: types.CallbackQuery):
             advance(session, 'repeat')
             choices = [(label, key) for key, label in RULES.items()] if session.record.status == 'pending' else []
             choices += [('Выключить повторение', 'once'), ('Назад', 'backcard')]
-            await message.answer('Как часто создавать следующий платёж?', reply_markup=actions(session, choices))
+            await dialog_step(message, 'Как часто создавать следующий платёж?', reply_markup=actions(session, choices))
         elif action in {'weekly', 'monthly', 'once'} and session.step == 'repeat':
             from services.planned_recurrence import set_recurrence
             record = session.record
-            await run_blocking(set_recurrence, record.planned_id, record.revision, '' if action == 'once' else action)
-            await _card(message, session, record.planned_id)
+            plan = await run_blocking(set_recurrence, record.planned_id, record.revision, '' if action == 'once' else action)
+            await _render_card(message, session, plan, outcome='Повторение выключено.' if action == 'once' else 'Повторение сохранено.')
         elif action == 'snooze' and session.step == 'card':
             await _snooze_menu(message, session)
         elif action in {'tomorrow', 'week', 'custom'} and session.step == 'snooze':
             if action == 'custom':
                 advance(session, 'snooze_date')
-                await message.answer('Введите дату напоминания ДД.ММ.ГГГГ.', reply_markup=actions(session, [('Назад', 'backcard')]))
+                await dialog_step(message, 'Введите дату напоминания ДД.ММ.ГГГГ.', reply_markup=actions(session, [('Назад', 'backcard')]))
             else:
                 await _save_snooze(message, session, (plans.today() + timedelta(days=1 if action == 'tomorrow' else 7)).isoformat())
         elif action.startswith('pay'):
@@ -358,15 +354,20 @@ async def planned_callback(callback: types.CallbackQuery):
         else:
             raise ValueError('Шаг устарел. Откройте список заново.')
     except Exception as error:
-        await _failure(message, error)
+        await callback.answer(_failure_text(error)[:200], show_alert=True)
 
         if action in {'pay_confirm', 'cor_confirm', 'undo_confirm'} and session.record:
             # A network error can still mean the atomic batch committed. Show
             # the persisted result and its safe check action, never re-append.
             try:
-                await _card(message, session, session.record.planned_id)
+                previous = session.record
+                plan = await run_blocking(plans.get_plan, previous.planned_id)
+                outcome = 'Результат операции подтверждён.' if plan.revision != previous.revision and plan.status != 'processing' else ''
+                await _render_card(message, session, plan, outcome=outcome)
             except Exception:
                 logging.exception('Не удалось проверить сохранённый результат оплаты')
+    else:
+        await callback.answer()
 
 
 def _index(action, prefix, options):
@@ -376,17 +377,16 @@ def _index(action, prefix, options):
     return int(raw)
 
 
-@router.message(lambda m: bool(config.PLANNED_EXPENSES_ENABLED and m.from_user and get_session(m.from_user.id)
-                               and m.text not in NAVIGATION))
+@router.message(lambda m: bool(config.PLANNED_EXPENSES_ENABLED and m.from_user and get_session(m.from_user.id)))
 async def planned_text(message: types.Message):
     if not await check_access_message(message):
         return
     session = get_session(message.from_user.id)
     if session is None or session.chat_id != message.chat.id:
         return
-    if message.text and message.text.lower() in {'отмена', '/cancel'}:
+    if message.text and message.text.strip().lower() in {'отмена', '/cancel'}:
         pop_session(message.from_user.id)
-        await message.answer('Действие отменено.', reply_markup=build_main_menu())
+        await close_dialog()
         return
     try:
         if session.step in {'create_amount', 'create_description', 'create_date',
@@ -403,15 +403,15 @@ async def planned_text(message: types.Message):
         elif session.step.startswith('pay_') and message.text:
             await _payment_text(message, session)
         else:
-            await message.answer('Выберите действие кнопкой или отправьте /cancel.')
+            await dialog_hint(message, 'Выберите действие кнопкой или отправьте /cancel.')
     except Exception as error:
-        await _failure(message, error)
+        await dialog_hint(message, escape(_failure_text(error)))
 
 
 async def _payment_preview(message, session):
     advance(session, 'pay_preview')
     source = session.values.get('money_source', '')
-    await message.answer('Подтвердите оплату:\n\n' + escape(session.record.display_title)
+    await dialog_step(message, 'Подтвердите оплату:\n\n' + escape(session.record.display_title)
         + f"\nФактическая сумма: {format_money_exact(session.values['payment_amount'])}"
         + f"\nДата оплаты: {session.values['payment_date']}"
         + (f"\nИсточник: {escape(source)}" if TRACK_MONEY_SOURCE else ''),
@@ -425,7 +425,7 @@ async def _payment_sources(message, session):
     from services.money_sources import get_money_sources
     session.options = tuple(await run_blocking(get_money_sources))
     advance(session, 'pay_source')
-    await message.answer('Выберите источник оплаты.' if session.options else 'Нет активных источников. Добавьте источник в таблицу.',
+    await dialog_step(message, 'Выберите источник оплаты.' if session.options else 'Нет активных источников. Добавьте источник в таблицу.',
         reply_markup=actions(session, [(name, f'pay_src{i}') for i, name in enumerate(session.options)]))
 
 
@@ -437,14 +437,14 @@ async def _payment_action(message, session, action, user):
         session.values['payment_amount'] = current.amount
         if not current.amount:
             advance(session, 'pay_amount')
-            await message.answer('Введите фактическую сумму оплаты.', reply_markup=actions(session, []))
+            await dialog_step(message, 'Введите фактическую сумму оплаты.', reply_markup=actions(session, []))
         elif TRACK_MONEY_SOURCE:
             await _payment_sources(message, session)
         else:
             await _payment_preview(message, session)
     elif action in {'pay_amount', 'pay_date'} and session.step == 'pay_preview':
         advance(session, action)
-        await message.answer('Введите фактическую сумму.' if action == 'pay_amount' else 'Введите дату оплаты ДД.ММ.ГГГГ (или «сегодня»).',
+        await dialog_step(message, 'Введите фактическую сумму.' if action == 'pay_amount' else 'Введите дату оплаты ДД.ММ.ГГГГ (или «сегодня»).',
                              reply_markup=actions(session, []))
     elif action == 'pay_source' and session.step == 'pay_preview' and TRACK_MONEY_SOURCE:
         await _payment_sources(message, session)
@@ -456,8 +456,7 @@ async def _payment_action(message, session, action, user):
         paid = await run_blocking(plans.pay_plan, session.record.planned_id, session.record.revision,
             amount=session.values['payment_amount'], payment_date=session.values['payment_date'],
             actor=actor, actor_id=user.id, money_source=session.values.get('money_source', ''))
-        await message.answer('✅ Оплата подтверждена. Фактическая трата записана.')
-        await _card(message, session, paid.planned_id)
+        await _render_card(message, session, paid, outcome='✅ Фактическая трата записана.')
     else:
         raise ValueError('Шаг оплаты устарел. Откройте карточку заново.')
 
@@ -473,25 +472,25 @@ async def _payment_text(message, session):
         session.values['payment_date'] = plans.parse_date(message.text, payment=True)
         await _payment_preview(message, session)
     else:
-        await message.answer('Выберите действие кнопкой или отправьте /cancel.')
+        await dialog_hint(message, 'Выберите действие кнопкой или отправьте /cancel.')
 
 
 async def _snooze_menu(message, session):
     if session.record.status != 'pending' or session.record.creator_id != str(session.owner_id):
         raise ValueError('Отложить напоминание может создатель открытого платежа.')
     advance(session, 'snooze')
-    await message.answer('Когда напомнить о платеже?', reply_markup=actions(session, [
+    await dialog_step(message, 'Когда напомнить о платеже?', reply_markup=actions(session, [
         ('Завтра', 'tomorrow'), ('Через неделю', 'week'), ('Выбрать дату', 'custom'), ('Назад', 'backcard')]))
 
 
 async def _save_snooze(message, session, value):
     plan = await run_blocking(plans.snooze_plan, session.record.planned_id, session.record.revision, session.owner_id, value)
-    await _card(message, session, plan.planned_id)
+    await _render_card(message, session, plan, outcome='Напоминание перенесено.')
 
 
 async def _correction_preview(message, session):
     advance(session, 'cor_preview')
-    await message.answer(
+    await dialog_step(message,
         f"Фактическая сумма: {format_money_exact(session.values['correct_amount'])}\n"
         f"Дата оплаты: {session.values['correct_date']}",
         reply_markup=actions(session, [('Изменить сумму', 'cor_amount'), ('Изменить дату', 'cor_date'),
@@ -510,15 +509,16 @@ async def _correction_action(message, session, action, user):
     elif action in {'cor_amount', 'cor_date'} and session.step == 'cor_preview':
         advance(session, action)
         prompt = 'Введите фактическую сумму.' if action == 'cor_amount' else 'Введите дату оплаты ДД.ММ.ГГГГ.'
-        await message.answer(prompt, reply_markup=actions(session, [('Назад', 'backcard')]))
+        await dialog_step(message, prompt, reply_markup=actions(session, [('Назад', 'backcard')]))
     elif action == 'undo' and session.step == 'card':
         advance(session, 'undo')
-        await message.answer('Убрать фактическую трату из отчётов и снова открыть план?',
+        await dialog_step(message, 'Убрать фактическую трату из отчётов и снова открыть план?',
                              reply_markup=actions(session, [('Да, отменить проведение', 'undo_confirm'), ('Назад', 'backcard')]))
     elif (action, session.step) in {('cor_confirm', 'cor_preview'), ('undo_confirm', 'undo')}:
-        await run_blocking(correct_payment, record.planned_id, record.revision,
-                           user_id=user.id, username=user.username, undo=action == 'undo_confirm',
-                           amount=session.values.get('correct_amount'), payment_date=session.values.get('correct_date'))
-        await _card(message, session, record.planned_id)
+        undo = action == 'undo_confirm'
+        plan = await run_blocking(correct_payment, record.planned_id, record.revision,
+                                  user_id=user.id, username=user.username, undo=undo,
+                                  amount=session.values.get('correct_amount'), payment_date=session.values.get('correct_date'))
+        await _render_card(message, session, plan, outcome='Проведение отменено.' if undo else 'Оплата исправлена.')
     else:
         raise ValueError('Шаг исправления устарел. Откройте карточку заново.')

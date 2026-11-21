@@ -85,8 +85,8 @@ class ExpenseConcurrencyTests(unittest.IsolatedAsyncioTestCase):
             stack.enter_context(patch.object(expenses, "check_access_callback", AsyncMock(return_value=True)))
             stack.enter_context(patch.object(expenses, "check_access_message", AsyncMock(return_value=True)))
             stack.enter_context(patch.object(expenses, "run_blocking", fake_run_blocking))
-            stack.enter_context(patch.object(expenses, "_safe_delete_prompt", AsyncMock()))
-            stack.enter_context(patch.object(expenses, "_show_category_card", AsyncMock()))
+            stack.enter_context(patch.object(Bot, "delete_message", AsyncMock()))
+            stack.enter_context(patch.object(expenses, "_category_summary", AsyncMock(return_value="")))
             try:
                 tasks.append(asyncio.create_task(dp.feed_update(bot, Update(
                     update_id=1, callback_query=subcategory_callback(active)))))
@@ -135,7 +135,7 @@ class ExpenseConcurrencyTests(unittest.IsolatedAsyncioTestCase):
                 with (
                     patch.object(expenses, "check_access_callback", AsyncMock(return_value=True)),
                     patch.object(expenses, "run_blocking", read_subcategories),
-                    patch.object(expenses, "_safe_delete_prompt", AsyncMock()),
+                    patch.object(Bot, "delete_message", AsyncMock()),
                     patch.object(Message, "answer", new_callable=AsyncMock) as answer,
                     patch.object(CallbackQuery, "answer", new_callable=AsyncMock) as alert,
                 ):

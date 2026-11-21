@@ -26,7 +26,8 @@ from services.access import check_access_callback, check_access_message
 from services.budget import get_category_details, get_month_totals, get_report_categories
 from services.expenses import get_recent_expenses
 from services.google_sheets import get_spreadsheet_url
-from version import __version__
+from services.settings_middleware import abandon_sessions
+from state.dialog_messages import close_dialog, dialog_result, dialog_step, is_current_action
 
 BASE_DIR = Path(__file__).resolve().parents[1]
 RESTART_NOTICE_FILE = PROFILE_RUNTIME_DIR / ".restart_notice.json"
@@ -54,13 +55,14 @@ from services.money import (
     format_money_exact,
 )
 
-def _write_restart_notice(chat_id: int, username: str | None) -> None:
+def _write_restart_notice(chat_id: int, username: str | None, *, updated: bool) -> None:
     RESTART_NOTICE_FILE.parent.mkdir(parents=True, exist_ok=True)
     RESTART_NOTICE_FILE.write_text(
         json.dumps(
             {
                 "chat_id": chat_id,
                 "username": username,
+                "updated": updated,
             },
             ensure_ascii=False,
         ),
@@ -83,7 +85,7 @@ async def _send_limits(target_message: types.Message) -> None:
         month_limit, month_spent, month_remaining = await run_blocking(get_month_totals)
     except Exception:
         logging.exception("Ошибка чтения лимитов из Google Sheets")
-        await target_message.answer("Не удалось загрузить лимиты. Попробуйте позже.")
+        await dialog_step(target_message, "Не удалось загрузить лимиты. Попробуйте позже.")
         return
 
     try:
@@ -92,7 +94,7 @@ async def _send_limits(target_message: types.Message) -> None:
         remaining_fmt = _format_remaining_with_alert(month_remaining)
     except Exception:
         logging.exception("Ошибка форматирования значений лимитов")
-        await target_message.answer("Не удалось загрузить лимиты. Попробуйте позже.")
+        await dialog_step(target_message, "Не удалось загрузить лимиты. Попробуйте позже.")
         return
 
     today = datetime.now(ZoneInfo(BOT_TIMEZONE)).date()
@@ -111,7 +113,7 @@ async def _send_limits(target_message: types.Message) -> None:
     from services.budget_settings import cached_settings
     if not cached_settings().monthly_limits_enabled:
         text = f"📊 Расходы за месяц\n\n💸 Потрачено: <b>{spent_fmt} {currency_symbol()}</b>"
-    await target_message.answer(text, reply_markup=build_categories_keyboard(categories))
+    await dialog_step(target_message, text, reply_markup=build_categories_keyboard(categories))
 
 
 async def _send_recent_expenses(target_message: types.Message, limit: int = 5) -> None:
@@ -122,23 +124,23 @@ async def _send_recent_expenses(target_message: types.Message, limit: int = 5) -
             recent = await run_blocking(get_recent_expenses, limit)
     except Exception:
         logging.exception("Ошибка чтения последних трат из Google Sheets")
-        await target_message.answer("Не удалось загрузить траты. Попробуйте позже.")
+        await dialog_step(target_message, "Не удалось загрузить траты. Попробуйте позже.")
         return
 
     if not recent:
-        await target_message.answer("Траты не найдены.")
+        await dialog_step(target_message, "Траты не найдены.")
         return
 
     lines = [f"Последние {len(recent)} трат:"]
     for idx, item in enumerate(recent, start=1):
         date_value, username_value, category_value, subcategory_value, amount_value, comment_value = item[:6]
         lines.append(f"{idx}. <b>{date_value}</b> | <b>{format_money_exact(amount_value)}</b> | <b>{escape(subcategory_value)}</b>")
-        details = [f"Пользователь: {username_value}"]
+        details = [f"Пользователь: {escape(username_value)}"]
         if category_value:
             details.append(f"Категория: {escape(category_value)}")
         lines.append(" | ".join(details))
         if comment_value:
-            lines.append(f"Комментарий: {comment_value}")
+            lines.append(f"Комментарий: {escape(comment_value)}")
         if TRACK_MONEY_SOURCE:
             source = item[6] if len(item) > 6 else ""
             lines.append(f"Источник: {escape(source or 'Не указан')}")
@@ -146,9 +148,10 @@ async def _send_recent_expenses(target_message: types.Message, limit: int = 5) -
 
     keyboard = InlineKeyboardBuilder()
     keyboard.button(text="Открыть гугл таблицу", url=get_spreadsheet_url())
-    await target_message.answer(
-        "\n".join(lines).strip(),
-        reply_markup=keyboard.as_markup(),
+    markup = keyboard.as_markup()
+    await dialog_result(
+        target_message, "\n".join(lines).strip(),
+        reply_markup=markup, retained_markup=markup,
     )
 
 
@@ -327,7 +330,7 @@ def _run_git_pull() -> tuple[bool, str, str]:
 async def cmd_start(message: types.Message) -> None:
     if not await check_access_message(message):
         return
-    await message.answer("Привет! Выберите действие из меню.", reply_markup=build_main_menu())
+    await dialog_step(message, "Привет! Выберите действие из меню.", reply_markup=build_main_menu())
 
 
 @router.message(
@@ -354,7 +357,7 @@ async def send_log_handler(message: types.Message, bot: Bot) -> None:
         return
 
     if not BOT_LOG_FILE.exists() or not BOT_LOG_FILE.is_file():
-        await message.answer("Файл bot.log не найден.")
+        await dialog_step(message, "Файл bot.log не найден.")
         return
 
     export_path: Path | None = None
@@ -365,9 +368,9 @@ async def send_log_handler(message: types.Message, bot: Bot) -> None:
             document=FSInputFile(export_path, filename="bot.log.txt"),
             caption="Актуальный bot.log",
         )
-    except Exception as exc:
+    except Exception:
         logging.exception("Не удалось отправить bot.log")
-        await message.answer(f"Не удалось отправить bot.log: {type(exc).__name__}: {exc}")
+        await dialog_step(message, "Не удалось отправить bot.log. Попробуйте позже.")
     finally:
         if export_path is not None:
             try:
@@ -384,41 +387,40 @@ async def restart_handler(message: types.Message) -> None:
         return
 
     if _restart_in_progress:
-        await message.answer("Перезапуск уже запущен. Подождите несколько секунд.")
+        await dialog_step(message, "Перезапуск уже запущен. Подождите несколько секунд.")
         return
 
     _restart_in_progress = True
     logging.warning("Запрошен удаленный перезапуск бота пользователем @%s", message.from_user.username if message.from_user else "unknown")
-    try:
-        _write_restart_notice(
-            chat_id=message.chat.id,
-            username=message.from_user.username if message.from_user else None,
-        )
-    except Exception:
-        logging.exception("Не удалось записать marker перезапуска")
-        _restart_in_progress = False
-        await message.answer("Не удалось подготовить перезапуск. Попробуйте позже.")
-        return
-    await message.answer("Проверяю обновления...")
+    await dialog_step(message, "Проверяю обновления...")
 
     try:
         pull_result = await asyncio.to_thread(_run_git_pull)
     except Exception:
         logging.exception("Ошибка обновления из GitHub")
         _restart_in_progress = False
-        await message.answer("Не удалось обновиться. Попробуйте позже.")
+        await dialog_step(message, "Не удалось обновиться. Попробуйте позже.")
         return
 
     if not pull_result.ok:
         _restart_in_progress = False
         logging.warning("Удаленный перезапуск: обновление не выполнено: %s", pull_result.log_message)
-        await message.answer(pull_result.user_message or "Не удалось обновиться. Попробуйте позже.")
+        await dialog_step(message, pull_result.user_message or "Не удалось обновиться. Попробуйте позже.")
         return
 
-    if pull_result.before_sha == pull_result.after_sha:
-        await message.answer(f"Обновление не найдено. Перезапускаюсь. Версия: {__version__}")
-    else:
-        await message.answer(f"Обновление установлено. Перезапускаюсь. Версия: {__version__}")
+    try:
+        _write_restart_notice(
+            chat_id=message.chat.id,
+            username=message.from_user.username if message.from_user else None,
+            updated=pull_result.before_sha != pull_result.after_sha,
+        )
+    except OSError:
+        logging.exception("Не удалось записать marker перезапуска")
+        _restart_in_progress = False
+        await dialog_step(message, "Не удалось подготовить перезапуск. Попробуйте позже.")
+        return
+
+    await close_dialog()
     asyncio.create_task(_restart_process_after_delay(5))
 
 
@@ -427,7 +429,8 @@ async def view_limits_from_main_menu(callback: types.CallbackQuery) -> None:
     if not await check_access_callback(callback):
         return
     await callback.answer()
-    if callback.message:
+    if isinstance(callback.message, types.Message):
+        abandon_sessions(callback.from_user.id)
         await _send_limits(callback.message)
 
 
@@ -437,6 +440,16 @@ async def category_click_handler(callback: types.CallbackQuery) -> None:
         return
 
     category_idx_raw = callback.data.split(":", 1)[1]
+    if (not isinstance(callback.message, types.Message)
+            or not is_current_action(callback.message, callback.data, shared=category_idx_raw != "close")):
+        await callback.answer("Отчёт устарел. Откройте его заново.", show_alert=True)
+        return
+
+    if category_idx_raw == "close":
+        await close_dialog()
+        await callback.answer()
+        return
+
     if not category_idx_raw.isdigit():
         await callback.answer("Некорректная категория.", show_alert=True)
         return
@@ -465,16 +478,19 @@ async def category_click_handler(callback: types.CallbackQuery) -> None:
     from services.budget_views import format_category_card
     text = format_category_card((category_title, category_limit, category_spent, category_remaining, subcategories))
 
+    abandon_sessions(callback.from_user.id)
     await callback.answer()
-    if callback.message:
-        await callback.message.answer(
-            text,
-            reply_markup=build_category_actions_keyboard(),
-        )
+    await dialog_step(callback.message, text, reply_markup=build_category_actions_keyboard())
+
+
+@router.message(lambda m: bool(m.text and m.text.strip().lower() in {"/cancel", "отмена"}))
+async def close_menu_dialog(message: types.Message) -> None:
+    if await check_access_message(message):
+        await close_dialog()
 
 
 @router.message()
 async def fallback_handler(message: types.Message) -> None:
     if not await check_access_message(message):
         return
-    await message.answer("Выберите действие из меню.", reply_markup=build_main_menu())
+    await dialog_step(message, "Выберите действие из меню.", reply_markup=build_main_menu())

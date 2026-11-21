@@ -88,6 +88,8 @@ Important current behavior:
 | Use sequential phase execution | The bot is small and many changes touch shared services/handlers. | Complete |
 | Use generated `expense_id` in column `H` for stale-safe edit/delete | Row number alone is not enough when rows can shift. | Complete |
 | Configure daily digest recipients only through Google Sheets | The user wants no Telegram settings UI for this feature; `Users` remains the admin-controlled configuration surface. | Complete |
+| В Telegram у каждого пользователя один активный шаг. При переходе, закрытии и отмене старый шаг убирается, у сохранённого результата сворачиваются временные кнопки. | В переписке должны оставаться ввод пользователя, результаты и напоминания. | v1.8.3, [правила диалогов](../README.md#диалоги-в-telegram) |
+| У обычной и будущей траты один необязательный комментарий. Для будущей траты он отображается как описание и переносится в фактическую трату при оплате. | Категории, подкатегории и одного комментария достаточно для идентификации платежа. | Для существующих записей со вторым текстовым полем сохраняется совместимость. |
 
 ## Phase Notes
 

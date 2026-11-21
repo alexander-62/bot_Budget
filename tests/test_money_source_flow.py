@@ -21,7 +21,7 @@ class MoneySourceFlowTests(unittest.IsolatedAsyncioTestCase):
         self.stack = ExitStack()
         self.stack.enter_context(patch.object(expenses, "TRACK_MONEY_SOURCE", True))
         self.stack.enter_context(patch.object(expenses, "check_access_callback", AsyncMock(return_value=True)))
-        self.stack.enter_context(patch.object(expenses, "_show_category_card", AsyncMock()))
+        self.stack.enter_context(patch.object(expenses, "_category_summary", AsyncMock(return_value="")))
         self.sources = ["Card <A>", "Cash"]
         self.writes, self.updates = [], []
         self.source_reads = 0
@@ -100,7 +100,6 @@ class MoneySourceFlowTests(unittest.IsolatedAsyncioTestCase):
         await expenses.expense_source_handler(self.callback(old_cash_callback))
         self.assertNotEqual(session.session_id, old_picker_id)
         self.assertEqual(session.source_options, ("Card",))
-        self.message.bot.delete_message.assert_awaited_with(chat_id=101, message_id=10)
         reads = self.source_reads
         await expenses.expense_source_handler(self.callback(old_cash_callback))
         self.assertEqual(self.source_reads, reads)

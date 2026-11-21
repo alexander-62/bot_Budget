@@ -4,7 +4,7 @@ from uuid import uuid4
 
 from services.expenses import SavedExpense
 
-_SAVED_EXPENSE_ACTION_TTL_SECONDS = 1800
+SAVED_EXPENSE_ACTION_TTL_SECONDS = 1800
 
 
 @dataclass
@@ -38,7 +38,7 @@ def get_saved_expense_action(user_id: int) -> SavedExpenseAction | None:
     action = _actions_by_user.get(user_id)
     if action is None:
         return None
-    if time.monotonic() - action.updated_at > _SAVED_EXPENSE_ACTION_TTL_SECONDS:
+    if time.monotonic() - action.updated_at > SAVED_EXPENSE_ACTION_TTL_SECONDS:
         _actions_by_user.pop(user_id, None)
         return None
     if not action.active:
