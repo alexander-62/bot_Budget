@@ -179,6 +179,8 @@ def is_allowed_user(user_id: int | None, username: str | None = None) -> tuple[b
 
 
 async def check_access_message(message: types.Message) -> bool:
+    from state.dialog_messages import dialog_step
+
     username = message.from_user.username if message.from_user else None
     user_id = message.from_user.id if message.from_user else None
 
@@ -186,7 +188,7 @@ async def check_access_message(message: types.Message) -> bool:
         is_allowed, reason = await asyncio.to_thread(is_allowed_user, user_id, username)
     except Exception:
         logging.exception("Не удалось загрузить список пользователей из Google Sheets")
-        await message.answer("Ошибка проверки доступа. Попробуйте позже.")
+        await dialog_step(message, "Ошибка проверки доступа. Попробуйте позже.")
         return False
 
     if is_allowed and not PROFILE.legacy:
@@ -200,17 +202,17 @@ async def check_access_message(message: types.Message) -> bool:
         return True
 
     if reason == "user_id_not_found":
-        await message.answer("Доступ запрещен. Ваш user_id не найден во вкладке Users этого бюджета.")
+        await dialog_step(message, "Доступ запрещен. Ваш user_id не найден во вкладке Users этого бюджета.")
         return False
 
     if reason == "empty_username":
-        await message.answer(
-            "Доступ запрещен. У вас не установлен username в Telegram. "
+        await dialog_step(
+            message, "Доступ запрещен. У вас не установлен username в Telegram. "
             "Установите username и попросите добавить вас во вкладку Users."
         )
         return False
 
-    await message.answer("Доступ запрещен. Ваш username не найден во вкладке Users.")
+    await dialog_step(message, "Доступ запрещен. Ваш username не найден во вкладке Users.")
     return False
 
 

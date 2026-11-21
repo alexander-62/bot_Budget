@@ -1,8 +1,43 @@
-"""Refresh shared budget preferences off the event loop before rendering updates."""
+"""Refresh budget settings and release previous sessions on menu navigation."""
 import logging
-from aiogram import BaseMiddleware
+
+from aiogram import BaseMiddleware, types
+
+from constants import (
+    MENU_EXPENSES_TEXT, MENU_PLANNED_TEXT, MENU_SHOPPING_TEXT,
+    MENU_VIEW_EXPENSES_TEXT, MENU_VIEW_LIMITS_TEXT, MENU_WEBAPP_TEXT,
+)
 from services.async_tools import run_blocking
 from services.budget_settings import settings_initialized, refresh_runtime_settings
+from state.dialog_messages import close_dialog, dialog_hint
+from state.expense_session import pop_session as pop_expense
+from state.planned_session import pop_session as pop_planned
+from state.saved_expense_actions import finalize_saved_expense_action
+from state.settings_session import pop_session as pop_settings
+from state.shopping_session import pop_session as pop_shopping
+
+
+def abandon_sessions(user_id):
+    pop_settings(user_id)
+    pop_expense(user_id)
+    pop_shopping(user_id)
+    pop_planned(user_id)
+    finalize_saved_expense_action(user_id)
+
+
+def _is_menu_navigation(text):
+    if not text:
+        return False
+    command = text.split(maxsplit=1)[0].split("@", 1)[0] if text.startswith("/") else ""
+    return (
+        command == "/start"
+        or text in {"/settings", "/planned", MENU_PLANNED_TEXT, f"📅 {MENU_PLANNED_TEXT}", "Настройки", "⚙️ Настройки"}
+        or text.strip().lower() in {"лог", "перезапуск"}
+        or text.endswith((
+            MENU_EXPENSES_TEXT, MENU_SHOPPING_TEXT, MENU_VIEW_EXPENSES_TEXT,
+            MENU_VIEW_LIMITS_TEXT, MENU_WEBAPP_TEXT, "Расходы за месяц",
+        ))
+    )
 
 
 class BudgetSettingsMiddleware(BaseMiddleware):
@@ -12,24 +47,13 @@ class BudgetSettingsMiddleware(BaseMiddleware):
                 await run_blocking(refresh_runtime_settings)
             except Exception:
                 logging.exception("Не удалось прочитать настройки бюджета")
-                await event.answer("Не удалось загрузить настройки бюджета. Проверьте лист «Настройки» и повторите попытку.")
+                text = "Не удалось загрузить настройки бюджета. Проверьте лист «Настройки» и повторите попытку."
+                if isinstance(event, types.CallbackQuery):
+                    await event.answer(text, show_alert=True)
+                else:
+                    await dialog_hint(event, text)
                 return
-        # Menu navigation abandons any unfinished flow before router filters run.
-        from constants import MENU_EXPENSES_TEXT, MENU_SHOPPING_TEXT, MENU_VIEW_EXPENSES_TEXT, MENU_VIEW_LIMITS_TEXT, MENU_WEBAPP_TEXT, MENU_PLANNED_TEXT
-        text = getattr(event, "text", None)
-        callback = getattr(event, "data", None)
-        navigation = text in {"/start", "/settings", "/planned", "Настройки", "⚙️ Настройки"} or (
-            isinstance(text, str) and any(text.endswith(label) for label in
-            (MENU_EXPENSES_TEXT, MENU_SHOPPING_TEXT, MENU_VIEW_EXPENSES_TEXT, MENU_VIEW_LIMITS_TEXT, MENU_WEBAPP_TEXT, MENU_PLANNED_TEXT, "Расходы за месяц")))
-        if navigation or (isinstance(callback, str) and callback.startswith("main:")):
-            user = getattr(event, "from_user", None)
-            if user:
-                from state.settings_session import pop_session
-                from state.expense_session import pop_session as pop_expense
-                from state.shopping_session import pop_session as pop_shopping
-                from state.planned_session import pop_session as pop_planned
-                pop_session(user.id)
-                pop_expense(user.id)
-                pop_shopping(user.id)
-                pop_planned(user.id)
+        if isinstance(event, types.Message) and event.from_user and _is_menu_navigation(event.text):
+            abandon_sessions(event.from_user.id)
+            await close_dialog()
         return await handler(event, data)

@@ -1,5 +1,6 @@
 import time
 from dataclasses import dataclass
+from uuid import uuid4
 
 from constants import SHOPPING_SESSION_TTL_SECONDS
 
@@ -8,10 +9,6 @@ from constants import SHOPPING_SESSION_TTL_SECONDS
 class ShoppingSession:
     session_id: str
     state: str
-    list_chat_id: int | None = None
-    list_message_id: int | None = None
-    step_chat_id: int | None = None
-    step_message_id: int | None = None
     updated_at: float = 0.0
     finalized: bool = False
 
@@ -20,7 +17,7 @@ _shopping_sessions: dict[int, ShoppingSession] = {}
 
 
 def _new_session_id() -> str:
-    return str(int(time.time() * 1000))
+    return uuid4().hex
 
 
 def create_session(user_id: int, state: str) -> ShoppingSession:

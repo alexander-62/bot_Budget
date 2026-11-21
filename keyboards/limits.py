@@ -1,5 +1,5 @@
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
-from constants import MENU_EXPENSES_CALLBACK
+from constants import MENU_EXPENSES_CALLBACK, MENU_LIMITS_CALLBACK
 
 
 def build_categories_keyboard(categories: list[str]) -> InlineKeyboardMarkup:
@@ -14,6 +14,7 @@ def build_categories_keyboard(categories: list[str]) -> InlineKeyboardMarkup:
                 )
             ]
         )
+    rows.append([InlineKeyboardButton(text="Закрыть", callback_data="viewcat:close")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -26,6 +27,8 @@ def build_category_actions_keyboard() -> InlineKeyboardMarkup:
                     callback_data=MENU_EXPENSES_CALLBACK,
                     style="success",
                 )
-            ]
+            ],
+            [InlineKeyboardButton(text="К отчёту", callback_data=MENU_LIMITS_CALLBACK)],
+            [InlineKeyboardButton(text="Закрыть", callback_data="viewcat:close")],
         ]
     )

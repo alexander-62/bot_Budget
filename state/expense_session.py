@@ -14,8 +14,6 @@ class ExpenseSession:
     amount: str | None = None
     comment: str | None = None
     saved_action_id: str | None = None
-    prompt_chat_id: int | None = None
-    prompt_message_id: int | None = None
     updated_at: float = 0.0
     finalized: bool = False
     money_source: str = ""

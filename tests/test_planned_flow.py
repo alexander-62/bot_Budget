@@ -257,7 +257,8 @@ class PlannedFlowTests(unittest.IsolatedAsyncioTestCase):
         expense_session(101,'enter_amount')
         bot=Bot('123456:TEST_TOKEN')
         dp=app.create_dispatcher()
-        with patch.object(settings,'check_access_message',AsyncMock(return_value=True)), \
+        with patch.object(Bot, 'delete_message', AsyncMock()), \
+             patch.object(settings,'check_access_message',AsyncMock(return_value=True)), \
              patch.object(settings,'refresh_runtime_settings',return_value=BudgetSettings()):
             try:
                 await dp.feed_update(bot,Update(update_id=1,message=message('/planned')))
