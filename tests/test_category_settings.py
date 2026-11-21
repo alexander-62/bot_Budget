@@ -127,6 +127,39 @@ class SettingsFlowTests(unittest.IsolatedAsyncioTestCase):
         await handlers.settings_callback(self.callback('confirm'))
         self.writer.assert_called_once_with('currency','RUB',expected='EUR')
 
+    async def test_planned_expenses_switch_confirms_and_refreshes_both_menus(self):
+        from state import planned_session
+        planned_session.create_session(202, 202)
+        self.addCleanup(planned_session.pop_session, 202)
+
+        def apply(enabled, *, expected):
+            self.assertIs(config.PLANNED_EXPENSES_ENABLED, expected)
+            config.PLANNED_EXPENSES_ENABLED = enabled
+
+        def labels(reply):
+            markup = reply[1]['reply_markup']
+            rows = getattr(markup, 'inline_keyboard', None) or markup.keyboard
+            return [button.text for row in rows for button in row]
+
+        with patch.object(config, 'PLANNED_EXPENSES_ENABLED', False), \
+             patch.object(handlers, 'set_feature_enabled', side_effect=apply) as write:
+            await self.open()
+            self.assertIn('Будущие траты: выключены', labels(self.replies[-1]))
+            await handlers.settings_callback(self.callback('planned'))
+            write.assert_not_called()
+            confirmation = self.callback('planned_confirm')
+            await handlers.settings_callback(confirmation)
+            write.assert_called_once_with(True, expected=False)
+            self.assertIn('📅 Будущие траты', labels(self.replies[-2]))
+            self.assertIn('Будущие траты: включены', labels(self.replies[-1]))
+            await handlers.settings_callback(confirmation)
+            self.assertEqual(write.call_count, 1)
+            await handlers.settings_callback(self.callback('planned'))
+            await handlers.settings_callback(self.callback('planned_confirm'))
+            write.assert_called_with(False, expected=True)
+            self.assertNotIn('📅 Будущие траты', labels(self.replies[-2]))
+            self.assertIsNone(planned_session.get_session(202))
+
     async def test_limits_off_is_explicit_and_never_deletes_limits(self):
         await self.open()
         await handlers.settings_callback(self.callback('limits'))

@@ -11,7 +11,8 @@ from zoneinfo import ZoneInfo
 
 from gspread.utils import rowcol_to_a1
 
-from config import BOT_TIMEZONE, PLANNED_EXPENSES_ENABLED
+import config
+from config import BOT_TIMEZONE
 from constants import PLANNED_EXPENSES_SHEET_NAME
 from services.expenses import parse_amount as _parse_amount
 from services.money import parse_sheet_number
@@ -67,8 +68,29 @@ class StalePlanError(ValueError):
 
 
 def require_enabled():
-    if not PLANNED_EXPENSES_ENABLED:
+    if not config.PLANNED_EXPENSES_ENABLED:
         raise ValueError('Будущие траты выключены для этого бота.')
+
+
+def set_feature_enabled(enabled: bool, *, expected: bool) -> None:
+    from services.bot_profiles import get_profile, set_profile_planned_expenses
+    from services.process_control import ProcessLock
+
+    start_lock = ProcessLock(config.PROFILE_RUNTIME_DIR / ".bot-start.lock")
+    if not start_lock.acquire():
+        raise ValueError("Настройки бота уже меняются. Попробуйте ещё раз.")
+    try:
+        with _lock:
+            profile = get_profile(config.PROFILE_ID, config.BASE_DIR)
+            if profile.planned_expenses_enabled != expected:
+                raise ValueError("Настройка уже изменилась. Откройте настройки заново.")
+            if enabled:
+                from services.startup_validation import validate_planned_expenses_schema
+                validate_planned_expenses_schema(get_spreadsheet(), profile)
+            set_profile_planned_expenses(profile.id, enabled, base_dir=config.BASE_DIR)
+            config.PLANNED_EXPENSES_ENABLED = enabled
+    finally:
+        start_lock.release()
 
 
 def today():

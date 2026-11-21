@@ -20,7 +20,7 @@ class PlannedFixture:
         self.addCleanup(google_sheets.reset_google_sheets_cache)
         for module in (plans, expenses):
             self.stack.enter_context(patch.object(module, 'get_spreadsheet', return_value=self.book))
-        self.stack.enter_context(patch.object(plans, 'PLANNED_EXPENSES_ENABLED', True))
+        self.stack.enter_context(patch.object(config, 'PLANNED_EXPENSES_ENABLED', True))
         self.stack.enter_context(patch.object(plans, 'today', return_value=date(2026,11,20)))
         self.stack.enter_context(patch.object(plans, 'validate_category'))
         self.stack.enter_context(patch.object(config, 'TRACK_MONEY_SOURCE', False))
@@ -68,7 +68,7 @@ class PlannedExpensesTests(PlannedFixture, unittest.TestCase):
         self.assertEqual(len(self.ws.rows), 2)
 
     def test_disabled_guard_does_no_sheet_io(self):
-        with patch.object(plans, 'PLANNED_EXPENSES_ENABLED', False), patch.object(plans, 'get_spreadsheet') as get:
+        with patch.object(config, 'PLANNED_EXPENSES_ENABLED', False), patch.object(plans, 'get_spreadsheet') as get:
             for fn, args in ((plans.list_plans, ()), (plans.get_plan, ('x',)), (plans.cancel_plan, ('x','r'))):
                 with self.assertRaises(ValueError):
                     fn(*args)

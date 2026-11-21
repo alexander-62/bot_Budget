@@ -21,7 +21,10 @@ from PIL import Image, ImageTk
 from services.desktop_status import DesktopStatus, collect_status, format_uptime, read_int
 from services.process_control import ProcessLock, is_process_running, recorded_process_identity, is_direct_child
 from services.windows_autostart import WindowsAutostart
-from services.bot_profiles import BotProfile, list_profiles, get_profile_token, save_profile, update_profile, set_profile_image
+from services.bot_profiles import (
+    BotProfile, get_profile, list_profiles, get_profile_token, save_profile, update_profile,
+    set_profile_autostart, set_profile_image,
+)
 from services.profile_images import import_profile_image, load_profile_image
 from services.profile_validation import ValidationResult, validate_profile, normalize_spreadsheet_id
 from version import __version__
@@ -897,7 +900,7 @@ class BudgetPanel(ctk.CTk):
             return
         enabled = self.profile_autostart_var.get()
         try:
-            profile = update_profile(replace(self.selected_profile, autostart=enabled), base_dir=BASE_DIR)
+            profile = set_profile_autostart(self.selected_profile.id, enabled, base_dir=BASE_DIR)
         except Exception:
             self.profile_autostart_var.set(not enabled)
             self.feedback.configure(text="Не удалось сохранить автозапуск профиля.", text_color=RED)
@@ -921,7 +924,13 @@ class BudgetPanel(ctk.CTk):
         if self._busy or getattr(self, "_saving_profile", False):
             self.feedback.configure(text="Дождитесь завершения текущей операции.", text_color=AMBER)
             return
-        self._show_profile_editor(self.selected_profile)
+        try:
+            profile = get_profile(self.selected_profile.id, BASE_DIR)
+        except ValueError:
+            self.feedback.configure(text="Не удалось загрузить настройки профиля.", text_color=RED)
+            return
+        self.selected_profile = profile
+        self._show_profile_editor(profile)
 
     def _show_budget_currency(self, profile):
         existing = getattr(self, "_currency_editor", None)

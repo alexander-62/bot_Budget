@@ -1,6 +1,8 @@
 import logging
 from html import escape
 
+import config
+
 from aiogram import Router, types
 from keyboards.main import build_main_menu
 from keyboards.settings import settings_keyboard, choice_keyboard
@@ -9,6 +11,8 @@ from services.async_tools import run_blocking
 from services.budget import get_budget_limits
 from services.budget_settings import refresh_runtime_settings, set_runtime_setting
 from services.categories import create_category, create_subcategory, validate_name
+from services.planned_expenses import set_feature_enabled
+from state.planned_session import clear_sessions as clear_planned_sessions
 from state.settings_session import create_session, get_session, pop_session, advance
 
 router = Router()
@@ -26,7 +30,10 @@ def _clear_other_flows(user_id):
 async def _menu(message, session):
     settings = await run_blocking(refresh_runtime_settings, force=True)
     advance(session, "menu")
-    await message.answer("⚙️ Настройки бюджета — общие для всех участников.", reply_markup=settings_keyboard(session, settings))
+    await message.answer(
+        "⚙️ Настройки бюджета — общие для всех участников.",
+        reply_markup=settings_keyboard(session, settings, planned_enabled=config.PLANNED_EXPENSES_ENABLED),
+    )
 
 
 async def _failure(message, error):
@@ -94,6 +101,22 @@ async def settings_callback(callback: types.CallbackQuery):
                 await run_blocking(validate_limits_sheet)
             await run_blocking(set_runtime_setting, "monthly_limits_enabled", "TRUE" if action == "on" else "FALSE")
             await message.answer("Месячные лимиты включены." if action == "on" else "Лимиты выключены. Продолжаем считать траты.", reply_markup=build_main_menu())
+            await _menu(message, session)
+        elif action == "planned" and session.step == "menu":
+            enabled = config.PLANNED_EXPENSES_ENABLED
+            advance(session, "planned_off" if enabled else "planned_on")
+            prompt = ("Выключить будущие траты и напоминания для этого бюджета? Сохранённые планы останутся."
+                      if enabled else "Включить будущие траты и напоминания для этого бюджета?")
+            await message.answer(prompt, reply_markup=choice_keyboard(
+                session, [("Выключить" if enabled else "Включить", "planned_confirm")]))
+        elif action == "planned_confirm" and session.step in {"planned_on", "planned_off"}:
+            enabled = session.step == "planned_on"
+            await run_blocking(set_feature_enabled, enabled, expected=not enabled)
+            if not enabled:
+                clear_planned_sessions()
+            advance(session, "saved")
+            await message.answer("Будущие траты включены." if enabled else "Будущие траты выключены.",
+                                 reply_markup=build_main_menu())
             await _menu(message, session)
         elif action == "new" and session.step == "menu":
             advance(session, "category_name")

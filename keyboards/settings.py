@@ -1,11 +1,12 @@
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 
-def settings_keyboard(session, settings):
+def settings_keyboard(session, settings, *, planned_enabled):
     builder = InlineKeyboardBuilder()
     for text, action in [
         (f"Валюта: {settings.currency}", "currency"),
         (f"Месячные лимиты: {'включены' if settings.monthly_limits_enabled else 'выключены'}", "limits"),
+        (f"Будущие траты: {'включены' if planned_enabled else 'выключены'}", "planned"),
         ("➕ Создать категорию", "new"),
         ("➕ Добавить подкатегорию", "sub"),
         ("Закрыть", "cancel"),

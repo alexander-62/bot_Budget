@@ -197,12 +197,24 @@ def set_profile_image(profile_id: str, image_file: str, *, base_dir: Path = BASE
         path = managed_image_path(image_file, base_dir)
         if path is None or not path.is_file():
             raise ValueError("Картинка профиля не найдена. Выберите файл заново.")
+    return _patch_profile_metadata(profile_id, base_dir, image_file=image_file)
+
+
+def set_profile_autostart(profile_id: str, enabled: bool, *, base_dir: Path = BASE_DIR) -> BotProfile:
+    return _patch_profile_metadata(profile_id, Path(base_dir), autostart=enabled)
+
+
+def set_profile_planned_expenses(profile_id: str, enabled: bool, *, base_dir: Path = BASE_DIR) -> BotProfile:
+    return _patch_profile_metadata(profile_id, Path(base_dir), planned_expenses_enabled=enabled)
+
+
+def _patch_profile_metadata(profile_id: str, base_dir: Path, **changes) -> BotProfile:
     with _registry_lock(base_dir):
         profiles = list_profiles(base_dir)
         current = next((profile for profile in profiles if profile.id == profile_id), None)
         if current is None:
             raise ValueError("Профиль не найден.")
-        updated = replace(current, image_file=image_file)
+        updated = replace(current, **changes)
         _validate(updated)
         profiles = [updated if profile.id == profile_id else profile for profile in profiles]
         fd, filename = tempfile.mkstemp(dir=base_dir, prefix=".profiles-", suffix=".tmp")

@@ -6,8 +6,8 @@ import time
 
 from aiogram import Bot
 
+import config
 from constants import DAILY_DIGEST_CHECK_INTERVAL_SECONDS
-from config import PLANNED_EXPENSES_ENABLED
 from services.async_tools import run_blocking
 from services.daily_digest import (
     build_daily_digest_summary,
@@ -22,7 +22,7 @@ from services.daily_digest import (
 async def run_daily_digest_scheduler(bot: Bot) -> None:
     next_recurrence_check = 0.0
     while True:
-        if PLANNED_EXPENSES_ENABLED and time.monotonic() >= next_recurrence_check:
+        if config.PLANNED_EXPENSES_ENABLED and time.monotonic() >= next_recurrence_check:
             from services.planned_recurrence import advance_due_series
             next_recurrence_check = time.monotonic() + 300
             try:
@@ -79,7 +79,7 @@ async def send_due_daily_digests(bot: Bot) -> int:
 
 
 async def send_due_planned_reminders(bot: Bot) -> int:
-    if not PLANNED_EXPENSES_ENABLED:
+    if not config.PLANNED_EXPENSES_ENABLED:
         return 0
     from services.planned_reminders import build_reminder_jobs, mark_delivered
     from services.budget_settings import settings_initialized, refresh_runtime_settings
@@ -89,6 +89,8 @@ async def send_due_planned_reminders(bot: Bot) -> int:
     jobs = await run_blocking(build_reminder_jobs)
     sent = 0
     for job in jobs:
+        if not config.PLANNED_EXPENSES_ENABLED:
+            break
         markup = InlineKeyboardMarkup(inline_keyboard=[[
             InlineKeyboardButton(text=title[:60], callback_data=f"fut:open:{item[0]}"),
             InlineKeyboardButton(text="Напомнить позже", callback_data=f"fut:snooze:{item[0]}")
