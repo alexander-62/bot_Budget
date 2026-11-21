@@ -42,9 +42,12 @@ def _snapshot(plan):
 def _description(values):
     amount = format_money_exact(values['amount']) if values.get('amount') else 'пока неизвестна'
     due = values.get('due_date') or 'без даты'
-    return '\n'.join([escape(values.get('title', '')), f"{escape(values.get('category', ''))} → {escape(values.get('subcategory', ''))}",
-                      f'Сумма: {amount}', f'Дата оплаты: {due}',
-                      *([escape(values['comment'])] if values.get('comment') else [])])
+    return '\n'.join([
+        *([escape(values['title'])] if values.get('title') else []),
+        f"{escape(values['category'])} → {escape(values['subcategory'])}",
+        f'Сумма: {amount}', f'Дата оплаты: {due}',
+        *([escape(values['comment'])] if values.get('comment') else []),
+    ])
 
 
 async def _failure(message, error):
@@ -64,7 +67,7 @@ async def _list(message, session):
     choices = []
     for i, plan in enumerate(shown):
         prefix = '⚠️ ' if plan.status == 'pending' and plan.due_date and plan.due_date < plans.today().isoformat() else ''
-        choices.append((f"{prefix}{plan.title[:45]} · {plan.due_date or 'без даты'}", f'item{i}'))
+        choices.append((f"{prefix}{plan.display_title[:45]} · {plan.due_date or 'без даты'}", f'item{i}'))
     if session.page:
         choices.append(('← Назад', 'prev'))
     if (session.page + 1) * PAGE_SIZE < len(records):
@@ -80,10 +83,14 @@ async def _list(message, session):
 
 async def _card(message, session, planned_id):
     plan = await run_blocking(plans.get_plan, planned_id)
+    await _render_card(message, session, plan)
+
+
+async def _render_card(message, session, plan, *, saved=False):
     session.record = plan
     session.values = _snapshot(plan)
     advance(session, 'card')
-    text = _description(session.values)
+    text = ('✅ Будущая трата сохранена.\n\n' if saved else '') + _description(session.values)
     choices = [('К списку', 'list')]
     if plan.status == 'pending':
         choices = [('Оплачено', 'pay'), ('Изменить', 'edit'), ('Отменить платёж', 'cancel')] + choices
@@ -129,36 +136,73 @@ async def _categories(message, session):
 
 async def _prompt(message, session, step):
     advance(session, step)
-    prompts = {'title': 'Введите название платежа (до 120 символов).',
-               'amount': 'Введите плановую сумму или выберите «Пока неизвестна».',
-               'due_date': 'Введите дату оплаты ДД.ММ.ГГГГ или выберите «Без даты».',
-               'comment': 'Введите комментарий (до 500 символов) или пропустите.'}
-    choice = {'amount': [('Пока неизвестна', 'skip')], 'due_date': [('Без даты', 'skip')], 'comment': [('Без комментария', 'skip')]}
-    await message.answer(prompts[step], reply_markup=actions(session, choice.get(step, [])))
+    prompts = {
+        'create_amount': 'Введите сумму и, если нужно, описание. Например: <code>74 000 Головы латекс</code>.',
+        'create_description': 'Введите описание платежа (до 120 символов).',
+        'create_date': 'Когда оплатить? Введите дату ДД.ММ.ГГГГ или выберите вариант.',
+        'title': 'Введите описание платежа (до 120 символов).',
+        'amount': 'Введите плановую сумму или выберите «Без суммы».',
+        'due_date': 'Введите дату оплаты ДД.ММ.ГГГГ или выберите «Без даты».',
+        'comment': 'Введите дополнительный комментарий (до 500 символов).',
+    }
+    choices = {
+        'create_amount': [('Только описание', 'description'), ('Без суммы и описания', 'skip')],
+        'create_description': [('Без описания', 'skip')],
+        'create_date': [('Сегодня', 'date_today'), ('Завтра', 'date_tomorrow'), ('Без даты', 'skip')],
+        'title': [('Без описания', 'skip')],
+        'amount': [('Без суммы', 'skip')],
+        'due_date': [('Без даты', 'skip')],
+        'comment': [('Убрать комментарий', 'skip')],
+    }
+    await message.answer(prompts[step], reply_markup=actions(session, choices[step]))
 
 
 async def _accept_value(message, session, value):
     step = session.step
+    if step == 'create_amount':
+        if value:
+            amount, description = plans.parse_entry(value)
+            session.values.update(amount=amount, title=description)
+        await _prompt(message, session, 'create_date')
+        return
+    if step == 'create_description':
+        session.values['title'] = plans.validate_text(value, 'Описание') if value else ''
+        await _prompt(message, session, 'create_date')
+        return
+    if step == 'create_date':
+        session.values['due_date'] = plans.parse_date(value, optional=True)
+        await _save_new_plan(message, session)
+        return
+
     if step == 'title':
-        value = plans.validate_text(value, 'Название')
+        value = plans.validate_text(value, 'Описание') if value else ''
     elif step == 'amount':
         value = plans.parse_amount(value) if value else ''
     elif step == 'due_date':
         value = plans.parse_date(value, optional=True)
-    elif step == 'comment':
-        if len(value) > 500:
-            raise ValueError('Комментарий: не больше 500 символов.')
+    elif len(value) > 500:
+        raise ValueError('Комментарий: не больше 500 символов.')
     session.values[step] = value
-    if session.editing:
-        await _preview(message, session)
-    elif step == 'title':
-        await _categories(message, session)
-    elif step == 'amount':
-        await _prompt(message, session, 'due_date')
-    elif step == 'due_date':
-        await _prompt(message, session, 'comment')
-    elif step == 'comment':
-        await _preview(message, session)
+    await _preview(message, session)
+
+
+async def _save_new_plan(message, session):
+    advance(session, 'create_retry')
+    try:
+        plan = await run_blocking(
+            plans.create_plan, planned_id=session.new_id, creator_id=session.owner_id,
+            creator=f'@{session.owner_username}' if session.owner_username else str(session.owner_id),
+            **session.values,
+        )
+    except Exception as error:
+        if not isinstance(error, ValueError):
+            logging.exception('Не удалось подтвердить сохранение будущей траты')
+        await message.answer(
+            escape(str(error)) if isinstance(error, ValueError) else 'Не удалось подтвердить сохранение.',
+            reply_markup=actions(session, [('Повторить сохранение', 'create_retry')]),
+        )
+        return
+    await _render_card(message, session, plan, saved=True)
 
 
 @router.message(lambda m: m.text in {'📅 Будущие траты', MENU_PLANNED_TEXT, '/planned'})
@@ -220,10 +264,10 @@ async def planned_callback(callback: types.CallbackQuery):
             await message.answer('Будущие траты закрыты.', reply_markup=build_main_menu())
         elif action == 'list':
             await _list(message, session)
-        elif action == 'new':
+        elif action == 'new' and session.step == 'list':
             session = create_session(user_id, message.chat.id)
             session.owner_username = callback.from_user.username
-            await _prompt(message, session, 'title')
+            await _categories(message, session)
         elif action == 'history' and session.step == 'list':
             session.history, session.page = not session.history, 0
             await _list(message, session)
@@ -252,27 +296,33 @@ async def planned_callback(callback: types.CallbackQuery):
             if session.editing:
                 await _preview(message, session)
             else:
-                await _prompt(message, session, 'amount')
-        elif action == 'skip' and session.step in {'amount', 'due_date', 'comment'}:
+                await _prompt(message, session, 'create_amount')
+        elif action == 'description' and session.step == 'create_amount':
+            await _prompt(message, session, 'create_description')
+        elif action in {'date_today', 'date_tomorrow'} and session.step == 'create_date':
+            day = plans.today() + timedelta(days=int(action == 'date_tomorrow'))
+            await _accept_value(message, session, day.isoformat())
+        elif action == 'create_retry' and session.step == 'create_retry':
+            await _save_new_plan(message, session)
+        elif action == 'skip' and session.step in {'create_amount', 'create_description', 'create_date',
+                                                   'title', 'amount', 'due_date', 'comment'}:
             await _accept_value(message, session, '')
-        elif action == 'edit' and session.step in {'card', 'preview'}:
+        elif action == 'edit' and session.step in {'card', 'preview'} and session.record.status == 'pending':
             session.editing = True
             advance(session, 'edit')
-            await message.answer('Что изменить?', reply_markup=actions(session, [('Название', 'title'), ('Сумму', 'amount'),
-                ('Дату', 'due_date'), ('Категорию', 'category'), ('Комментарий', 'comment')]))
+            choices = [('Описание', 'title'), ('Сумму', 'amount'), ('Дату', 'due_date'), ('Категорию', 'category')]
+            if session.record.comment:
+                choices.append(('Дополнительный комментарий', 'comment'))
+            await message.answer('Что изменить?', reply_markup=actions(session, choices))
         elif action in {'title', 'amount', 'due_date', 'comment', 'category'} and session.step == 'edit':
             if action == 'category':
                 await _categories(message, session)
             else:
                 await _prompt(message, session, action)
         elif action == 'save' and session.step == 'preview':
-            if session.record:
-                plan = await run_blocking(plans.update_plan, session.record.planned_id, session.record.revision, **session.values)
-            else:
-                plan = await run_blocking(plans.create_plan, planned_id=session.new_id, creator_id=user_id,
-                    creator=f'@{callback.from_user.username}' if callback.from_user.username else str(user_id), **session.values)
-            await message.answer('Будущая трата сохранена.')
-            await _card(message, session, plan.planned_id)
+            plan = await run_blocking(plans.update_plan, session.record.planned_id, session.record.revision,
+                                      **session.values)
+            await _render_card(message, session, plan, saved=True)
         elif action == 'cancel' and session.step == 'card' and session.record.status == 'pending':
             advance(session, 'cancel')
             prompt = 'Отменить этот платёж и остановить серию?' if session.record.repeat_rule else 'Отменить этот платёж?'
@@ -339,7 +389,8 @@ async def planned_text(message: types.Message):
         await message.answer('Действие отменено.', reply_markup=build_main_menu())
         return
     try:
-        if session.step in {'title', 'amount', 'due_date', 'comment'} and message.text:
+        if session.step in {'create_amount', 'create_description', 'create_date',
+                            'title', 'amount', 'due_date', 'comment'} and message.text:
             await _accept_value(message, session, message.text)
         elif session.step in {'cor_amount', 'cor_date'} and message.text:
             if session.step == 'cor_amount':
@@ -360,7 +411,7 @@ async def planned_text(message: types.Message):
 async def _payment_preview(message, session):
     advance(session, 'pay_preview')
     source = session.values.get('money_source', '')
-    await message.answer('Подтвердите оплату:\n\n' + escape(session.record.title)
+    await message.answer('Подтвердите оплату:\n\n' + escape(session.record.display_title)
         + f"\nФактическая сумма: {format_money_exact(session.values['payment_amount'])}"
         + f"\nДата оплаты: {session.values['payment_date']}"
         + (f"\nИсточник: {escape(source)}" if TRACK_MONEY_SOURCE else ''),

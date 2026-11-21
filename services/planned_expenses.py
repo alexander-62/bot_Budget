@@ -5,6 +5,8 @@ protect stale Telegram cards; identity never depends on a remembered row number.
 """
 from dataclasses import dataclass, replace, fields
 from datetime import date, datetime
+from decimal import InvalidOperation
+import re
 from threading import RLock
 from uuid import uuid4
 from zoneinfo import ZoneInfo
@@ -15,8 +17,11 @@ import config
 from config import BOT_TIMEZONE
 from constants import PLANNED_EXPENSES_SHEET_NAME
 from services.expenses import parse_amount as _parse_amount
+from services.expenses import parse_amount_with_optional_comment
 from services.money import parse_sheet_number
-from services.google_sheets import get_spreadsheet, guarded_batch, normalize_text, transaction_guard, update_cells
+from services.google_sheets import (
+    append_cells, get_spreadsheet, guarded_batch, normalize_text, transaction_guard, update_cells,
+)
 
 LEGACY_HEADERS = (
     'planned_id', 'Название', 'Категория', 'Подкатегория', 'Плановая сумма',
@@ -58,6 +63,10 @@ class PlannedExpense:
     payment_history: str = ''
     payment_guard: str = ''
     payment_source: str = ''
+
+    @property
+    def display_title(self) -> str:
+        return self.title or self.subcategory
 
     def values(self):
         return [str(getattr(self, f.name)) for f in fields(self)]
@@ -123,10 +132,26 @@ def parse_amount(value):
     numeric = parse_sheet_number(value)
     if numeric <= 0:
         raise ValueError('Сумма должна быть больше нуля.')
-    parsed = _parse_amount(str(numeric))
+    try:
+        parsed = _parse_amount(str(numeric))
+    except InvalidOperation as error:
+        raise ValueError('Сумма слишком велика.') from error
     if parse_sheet_number(parsed) <= 0:
         raise ValueError('Сумма должна быть не меньше 0,01.')
     return parsed
+
+
+def parse_entry(raw: str) -> tuple[str, str]:
+    def parse_grouped_amount(value: str) -> str:
+        # Keep a count at the start of a description from silently inflating
+        # the amount, for example "74000 2 головы".
+        value = value.replace("\xa0", ' ').replace("\u202f", ' ')
+        if not re.fullmatch(r'[+-]?(?:\d+|\d{1,3}(?: \d{3})+)(?:[,.]\d+)?(?: *(?:₽|€|RUB|EUR|руб\.?))?', value):
+            raise ValueError('Введите сумму, например: 74 000 Головы латекс.')
+        return parse_amount(value)
+
+    amount, description = parse_amount_with_optional_comment(raw, amount_parser=parse_grouped_amount)
+    return amount, validate_text(description, 'Описание') if description else ''
 
 
 def validate_text(value, name, maximum=120):
@@ -136,10 +161,10 @@ def validate_text(value, name, maximum=120):
     return value
 
 
-def _validated_values(title, category, subcategory, amount='', due_date='', comment=''):
+def _validated_values(category, subcategory, title='', amount='', due_date='', comment=''):
     if len(comment) > 500:
         raise ValueError('Комментарий: не больше 500 символов.')
-    return dict(title=validate_text(title, 'Название'),
+    return dict(title=validate_text(title, 'Описание') if title.strip() else '',
                 category=validate_text(category, 'Категория', 64),
                 subcategory=validate_text(subcategory, 'Подкатегория', 64),
                 amount=parse_amount(amount) if amount else '',
@@ -263,7 +288,10 @@ def create_plan(*, planned_id=None, creator_id, creator, **values):
         plan = PlannedExpense(stable_id, **cleaned, creator_id=str(creator_id), creator=creator,
                               revision=uuid4().hex[:12],
                               created_at=datetime.now(ZoneInfo(BOT_TIMEZONE)).isoformat())
-        ws.append_row(plan.values(), value_input_option='RAW', table_range=f'A:{LAST_COLUMN}')
+        # The same draft can be retried even if the first request is still running.
+        key = f'plan-create:{stable_id}'
+        guarded_batch(get_spreadsheet(), [append_cells(ws, plan.values())],
+                      guard=(key, transaction_guard(key)))
         return plan
 
 

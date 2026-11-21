@@ -8,6 +8,12 @@ from services import planned_expenses as plans, expenses
 
 
 class PlannedPaymentTests(fixtures.PlannedFixture, unittest.TestCase):
+    @property
+    def payment_batches(self):
+        return [batch for batch in self.book.batches
+                if any(request.get('appendCells', {}).get('sheetId') == self.expenses.id
+                       for request in batch['requests'])]
+
     def pay(self, p, **kwargs):
         args = dict(amount='125,75', payment_date='2026-10-31', actor='@bob')
         args.update(kwargs)
@@ -22,8 +28,8 @@ class PlannedPaymentTests(fixtures.PlannedFixture, unittest.TestCase):
         self.assertEqual(self.expenses.rows[1][:6], ['2026-10-31','2026-10','@bob','Авто','Страхование','125.75'])
         self.assertEqual(self.expenses.rows[1][7], result.expense_id)
         self.assertEqual(plans.get_plan(p.planned_id).status, 'paid')
-        self.assertEqual(len(self.book.batches), 1)
-        self.assertEqual(len(self.book.batches[0]['requests']), 5)
+        self.assertEqual(len(self.payment_batches), 1)
+        self.assertEqual(len(self.payment_batches[0]['requests']), 5)
         self.assertEqual(plans.list_plans(), [])
 
     def test_double_click_and_two_users_do_not_duplicate(self):
@@ -41,7 +47,7 @@ class PlannedPaymentTests(fixtures.PlannedFixture, unittest.TestCase):
         # All recovery state is in Sheets; a fresh invocation has no in-memory token dependency.
         self.assertEqual(self.pay(p).status, 'paid')
         self.assertEqual(len(self.expenses.rows), 2)
-        self.assertEqual(len(self.book.batches), 1)
+        self.assertEqual(len(self.payment_batches), 1)
 
     def test_still_in_flight_transaction_cannot_be_dispatched_twice(self):
         p = self.create()
@@ -51,7 +57,7 @@ class PlannedPaymentTests(fixtures.PlannedFixture, unittest.TestCase):
         self.assertEqual(plans.get_plan(p.planned_id).status, 'processing')
         with self.assertRaises(ValueError):
             self.pay(p)
-        self.assertEqual(len(self.book.batches), 1)
+        self.assertEqual(len(self.payment_batches), 1)
         # First HTTP request eventually commits; checking again reads paid.
         self.book.apply_batch(self.book.deferred_batch)
         self.assertEqual(self.pay(p).status, 'paid')
@@ -71,8 +77,8 @@ class PlannedPaymentTests(fixtures.PlannedFixture, unittest.TestCase):
         from gspread.exceptions import APIError
         response=Mock()
         response.json.return_value={'error':{'code':400,'message':'Invalid request','status':'INVALID_ARGUMENT'}}
-        self.book.batch_error_before=APIError(response)
         p=self.create()
+        self.book.batch_error_before=APIError(response)
         with self.assertRaises(APIError):
             self.pay(p)
         latest=plans.get_plan(p.planned_id)
@@ -95,7 +101,7 @@ class PlannedPaymentTests(fixtures.PlannedFixture, unittest.TestCase):
     def test_formula_like_text_is_explicit_string_value_in_atomic_write(self):
         p = self.create(title='=FORMULA()', comment='+comment')
         self.pay(p)
-        cells = self.book.batches[0]['requests'][1]['appendCells']['rows'][0]['values']
+        cells = self.payment_batches[0]['requests'][1]['appendCells']['rows'][0]['values']
         self.assertEqual(cells[6]['userEnteredValue'], {'stringValue': '=FORMULA() — +comment'})
         self.assertIn('numberValue', cells[5]['userEnteredValue'])
 

@@ -93,8 +93,8 @@ def build_reminder_jobs(now=None):
                 continue
             bucket = 'snooze:' + day.isoformat()
             amount = format_money_exact(plan.amount) if plan.amount else 'сумма пока неизвестна'
-            text = f'📅 Отложенное напоминание\n\n{escape(plan.title)}\n{amount}\nДата оплаты: {plan.due_date or "без даты"}'
-            jobs.append(ReminderJob(user_id, text, ((plan.planned_id, plan.revision, bucket),), (plan.title,)))
+            text = f'📅 Отложенное напоминание\n\n{escape(plan.display_title)}\n{amount}\nДата оплаты: {plan.due_date or "без даты"}'
+            jobs.append(ReminderJob(user_id, text, ((plan.planned_id, plan.revision, bucket),), (plan.display_title,)))
         elif plan.due_date:
             due = datetime.strptime(plan.due_date, '%Y-%m-%d').date()
             if due > day + timedelta(days=1):
@@ -104,8 +104,8 @@ def build_reminder_jobs(now=None):
                 continue
             label = 'Просроченный платёж' if due < day else 'Оплатить сегодня' if due == day else 'Оплатить завтра'
             amount = format_money_exact(plan.amount) if plan.amount else 'сумма пока неизвестна'
-            text = f'📅 {label}\n\n{escape(plan.title)}\n{amount}\nДата оплаты: {plan.due_date}'
-            jobs.append(ReminderJob(user_id, text, ((plan.planned_id, plan.revision, bucket),), (plan.title,)))
+            text = f'📅 {label}\n\n{escape(plan.display_title)}\n{amount}\nДата оплаты: {plan.due_date}'
+            jobs.append(ReminderJob(user_id, text, ((plan.planned_id, plan.revision, bucket),), (plan.display_title,)))
         elif day.weekday() == 0:
             bucket = 'week:' + day.strftime('%G-W%V')
             if plan.last_reminder not in {bucket, 'day:' + day.isoformat()}:
@@ -115,10 +115,10 @@ def build_reminder_jobs(now=None):
             batch = entries[offset:offset+8]
             lines = ['📅 Будущие траты без даты', '']
             for plan, _ in batch:
-                lines.append(escape(plan.title) + (f' — {format_money_exact(plan.amount)}' if plan.amount else ' — сумма пока неизвестна'))
+                lines.append(escape(plan.display_title) + (f' — {format_money_exact(plan.amount)}' if plan.amount else ' — сумма пока неизвестна'))
             lines += ['', 'Что-то уже оплатили? Откройте платёж и подтвердите оплату.']
             jobs.append(ReminderJob(user_id, '\n'.join(lines), tuple((p.planned_id, p.revision, b) for p,b in batch),
-                                    tuple(p.title for p,b in batch)))
+                                    tuple(p.display_title for p,b in batch)))
     return jobs
 
 
