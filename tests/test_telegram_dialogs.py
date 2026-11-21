@@ -246,7 +246,9 @@ class TelegramDialogTests(unittest.IsolatedAsyncioTestCase):
     async def test_restart_confirmation_is_the_only_startup_message_for_requester(self):
         with TemporaryDirectory() as directory:
             notice = Path(directory) / '.restart_notice.json'
-            with (patch.object(menu, 'RESTART_NOTICE_FILE', notice),
+            with (patch.object(menu, '__version__', '1.8.4'),
+                  patch.object(app, '__version__', '1.8.5'),
+                  patch.object(menu, 'RESTART_NOTICE_FILE', notice),
                   patch.object(app, 'RESTART_NOTICE_FILE', notice),
                   patch.object(app, 'get_allowed_chat_ids', return_value=[101, 202])):
                 menu._write_restart_notice(101, 'test', updated=True)
@@ -255,8 +257,23 @@ class TelegramDialogTests(unittest.IsolatedAsyncioTestCase):
             self.assertFalse(notice.exists())
         first, second = self.chat_messages.values()
         self.assertEqual((first.chat.id, second.chat.id), (101, 202))
-        self.assertIn('Обновление установлено. Бот снова запущен.', first.text)
-        self.assertIn('Бот запущен.', second.text)
+        self.assertEqual(first.text, 'Обновление установлено. Бот снова запущен. Версия: 1.8.4 → 1.8.5')
+        self.assertEqual(second.text, 'Бот запущен. Версия: 1.8.5')
+
+    async def test_restart_confirmation_with_same_or_unknown_previous_version(self):
+        with TemporaryDirectory() as directory:
+            notice = Path(directory) / '.restart_notice.json'
+            with (patch.object(menu, '__version__', '1.8.4'),
+                  patch.object(app, '__version__', '1.8.4'),
+                  patch.object(menu, 'RESTART_NOTICE_FILE', notice),
+                  patch.object(app, 'RESTART_NOTICE_FILE', notice)):
+                menu._write_restart_notice(101, 'test', updated=False)
+                await app.notify_restart_complete(self.bot)
+                self.assertEqual(self.latest().text, 'Бот снова запущен. Версия: 1.8.4')
+
+                notice.write_text('{"chat_id": 101, "updated": true}', encoding='utf-8')
+                await app.notify_restart_complete(self.bot)
+                self.assertEqual(self.latest().text, 'Обновление установлено. Бот снова запущен. Версия: 1.8.4')
 
     async def test_expired_dialog_is_removed_on_next_update(self):
         with patch.object(dialog_messages, 'monotonic', return_value=10):

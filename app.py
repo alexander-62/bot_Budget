@@ -1,4 +1,5 @@
 import asyncio
+from html import escape
 import json
 import logging
 import os
@@ -155,8 +156,12 @@ async def notify_restart_complete(bot: Bot) -> int | None:
         return
 
     prefix = "Обновление установлено. " if notice.get("updated") is True else ""
+    previous_version = notice.get("previous_version")
+    version_text = __version__
+    if isinstance(previous_version, str) and previous_version and previous_version != __version__:
+        version_text = f"{escape(previous_version)} → {__version__}"
     try:
-        await bot.send_message(chat_id=chat_id, text=f"{prefix}Бот снова запущен. Версия: {__version__}")
+        await bot.send_message(chat_id=chat_id, text=f"{prefix}Бот снова запущен. Версия: {version_text}")
     except Exception:
         logging.exception("Не удалось отправить сообщение о завершении перезапуска chat_id=%s", chat_id)
         return
