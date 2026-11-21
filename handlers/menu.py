@@ -28,6 +28,7 @@ from services.expenses import get_recent_expenses
 from services.google_sheets import get_spreadsheet_url
 from services.settings_middleware import abandon_sessions
 from state.dialog_messages import close_dialog, dialog_result, dialog_step, is_current_action
+from version import __version__
 
 BASE_DIR = Path(__file__).resolve().parents[1]
 RESTART_NOTICE_FILE = PROFILE_RUNTIME_DIR / ".restart_notice.json"
@@ -63,6 +64,7 @@ def _write_restart_notice(chat_id: int, username: str | None, *, updated: bool) 
                 "chat_id": chat_id,
                 "username": username,
                 "updated": updated,
+                "previous_version": __version__,
             },
             ensure_ascii=False,
         ),
