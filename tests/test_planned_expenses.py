@@ -48,7 +48,8 @@ class PlannedExpensesTests(PlannedFixture, unittest.TestCase):
         self.assertEqual([p.planned_id for p in plans.list_plans()], [overdue.planned_id, future.planned_id, undated.planned_id])
         cancelled = plans.cancel_plan(overdue.planned_id, overdue.revision)
         self.assertEqual(plans.list_plans(history=True), [cancelled])
-        self.assertEqual(self.ws.writes[0][2]['value_input_option'], 'RAW')
+        cells = self.book.batches[0]['requests'][1]['appendCells']['rows'][0]['values']
+        self.assertEqual(cells[1]['userEnteredValue'], {'stringValue': '=FORMULA()'})
 
     def test_revision_rejects_stale_edit_and_cancel_after_row_moves(self):
         p = self.create()
@@ -60,11 +61,21 @@ class PlannedExpensesTests(PlannedFixture, unittest.TestCase):
         plans.cancel_plan(updated.planned_id, updated.revision)
 
     def test_create_retry_after_lost_append_response_uses_stable_id(self):
-        self.ws.fail_append_after = True
+        self.book.batch_error_after = True
         with self.assertRaises(TimeoutError):
             self.create(planned_id='stable')
         result = self.create(planned_id='stable')
         self.assertEqual(result.planned_id, 'stable')
+        self.assertEqual(len(self.ws.rows), 2)
+
+    def test_create_retry_while_first_request_is_in_flight(self):
+        self.book.deferred_batch = False
+        with self.assertRaises(TimeoutError):
+            self.create(planned_id='stable')
+        first = self.book.deferred_batch
+        self.assertEqual(self.create(planned_id='stable').planned_id, 'stable')
+        with self.assertRaises(ValueError):
+            self.book.apply_batch(first)
         self.assertEqual(len(self.ws.rows), 2)
 
     def test_disabled_guard_does_no_sheet_io(self):

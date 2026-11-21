@@ -84,6 +84,13 @@ class PlannedReminderTests(unittest.TestCase):
             reminders.mark_delivered(job)
         self.assertEqual(reminders.build_reminder_jobs(current), [])
 
+    def test_reminder_without_description_uses_subcategory(self):
+        plan = self.create(title='', subcategory='Расходники', due_date='2026-11-20')
+        job, = reminders.build_reminder_jobs(self.now())
+        self.assertEqual(job.items[0][0], plan.planned_id)
+        self.assertEqual(job.titles, ('Расходники',))
+        self.assertIn('Расходники', job.text)
+
     def test_timezone_conversion_and_paid_cancelled_processing_exclusion(self):
         p=self.create(due_date='2026-11-20')
         self.assertEqual(reminders.build_reminder_jobs(self.now(clock='18:29',tz='UTC')),[])

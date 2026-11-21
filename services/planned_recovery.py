@@ -58,7 +58,7 @@ def inspect_recovery(spreadsheet):
     if not pending:
         return []
     actual_rows = expenses.get_all_values()
-    return [RecoveryItem(p.planned_id, p.revision, p.expense_id, p.title, p.actual_amount, p.actual_date,
+    return [RecoveryItem(p.planned_id, p.revision, p.expense_id, p.display_title, p.actual_amount, p.actual_date,
                          _state(p, actual_rows)) for p in pending]
 
 

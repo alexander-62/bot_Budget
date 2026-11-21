@@ -7,7 +7,6 @@ class Sheet:
     def __init__(self, title, rows=None, sheet_id=1):
         self.title, self.rows, self.id = title, deepcopy(rows or []), sheet_id
         self.writes = []
-        self.fail_append_after = False
 
     def get_all_values(self):
         return deepcopy(self.rows)
@@ -41,9 +40,6 @@ class Sheet:
     def append_row(self, values, **kwargs):
         self.writes.append(('append', list(values), kwargs))
         self.rows.append(list(values))
-        if self.fail_append_after:
-            self.fail_append_after = False
-            raise TimeoutError('lost append response')
         return {'updates': {'updatedRange': f"'{self.title}'!A{len(self.rows)}:I{len(self.rows)}"}}
 
     def col_values(self, n):

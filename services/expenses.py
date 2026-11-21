@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
@@ -51,13 +52,15 @@ def parse_amount(raw_amount: str) -> str:
     return f"{rounded:.2f}".replace(".", ",")
 
 
-def parse_amount_with_optional_comment(raw_input: str) -> tuple[str, str]:
+def parse_amount_with_optional_comment(
+    raw_input: str, *, amount_parser: Callable[[str], str] = parse_amount
+) -> tuple[str, str]:
     raw_text = raw_input.strip()
     if not raw_text:
         raise ValueError("Пустая сумма")
 
     try:
-        return parse_amount(raw_text), ""
+        return amount_parser(raw_text), ""
     except ValueError as full_parse_error:
         tokens = raw_text.split()
         for split_idx in range(len(tokens) - 1, 0, -1):
@@ -66,7 +69,7 @@ def parse_amount_with_optional_comment(raw_input: str) -> tuple[str, str]:
             if not comment_candidate:
                 continue
             try:
-                return parse_amount(amount_candidate), comment_candidate
+                return amount_parser(amount_candidate), comment_candidate
             except ValueError:
                 continue
 
@@ -340,7 +343,7 @@ def write_planned_payment(planned_ws, planned_row, plan, *, spreadsheet=None, ex
     from services.planned_expenses import payment_updates
 
     payment_date = date.fromisoformat(plan.actual_date)
-    comment = plan.title + (' — ' + plan.comment if plan.comment else '')
+    comment = ' — '.join(filter(None, (plan.title, plan.comment)))
     values = [plan.actual_date, get_current_month_key(payment_date), plan.paid_by,
               plan.category, plan.subcategory, float(plan.actual_amount.replace(',', '.')),
               comment, plan.expense_id]

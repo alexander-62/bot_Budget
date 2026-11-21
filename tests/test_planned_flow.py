@@ -59,17 +59,18 @@ class PlannedFlowTests(unittest.IsolatedAsyncioTestCase):
     async def text(self,text,user_id=101,chat_id=101):
         await flow.planned_text(message(text,user_id,chat_id))
 
-    async def create(self,amount='',due=''):
+    async def start_creation(self):
         await flow.open_planned(message('/planned'))
         await self.click('new')
-        await self.text('Аренда квартиры')
+        self.assertEqual(state.get_session(101).step, 'category')
         await self.click('cat0')
         await self.click('sub0')
+
+    async def create(self, amount='', due=''):
+        await self.start_creation()
         await (self.text(amount) if amount else self.click('skip'))
         await (self.text(due) if due else self.click('skip'))
-        await self.click('skip')
-        await self.click('save')
-        return plans.list_plans()[0]
+        return state.get_session(101).record
 
     async def test_create_without_date_or_amount_then_pay_with_actual_details(self):
         p=await self.create()
@@ -83,6 +84,63 @@ class PlannedFlowTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(plans.get_plan(p.planned_id).actual_date,'2026-10-31')
         self.assertEqual(len(self.actual.rows),2)
         self.assertTrue(any('Фактическая трата записана' in text for text,_ in self.replies))
+
+    async def test_description_on_amount_line_is_used_once_on_payment(self):
+        p = await self.create('74 000 2 головы латекс', '27.11.2026')
+        self.assertEqual((p.amount, p.title, p.comment, p.due_date),
+                         ('74000,00', '2 головы латекс', '', '2026-11-27'))
+        self.assertIn('Будущая трата сохранена', self.replies[-1][0])
+        self.assertEqual(len(self.actual.rows), 1)
+        await self.click('pay')
+        await self.click('pay_confirm')
+        self.assertEqual(self.actual.rows[1][6], '2 головы латекс')
+
+    async def test_description_only_tomorrow_and_stale_skip_do_not_save_twice(self):
+        await self.start_creation()
+        await self.click('description')
+        await self.text('Месячная аренда')
+        old_callback = self.callback_data('skip')
+        await self.click('date_tomorrow')
+        plan = state.get_session(101).record
+        self.assertEqual((plan.amount, plan.title, plan.due_date), ('', 'Месячная аренда', '2026-11-21'))
+        await self.click('', data=old_callback)
+        self.assertIn('устарела', self.alert.call_args.args[0])
+        self.assertEqual(len(plans.list_plans()), 1)
+
+    def callback_data(self, action):
+        return f'fut:{state.get_session(101).token}:{action}'
+
+    async def test_amount_only_shows_subcategory_as_name(self):
+        plan = await self.create('120')
+        self.assertEqual(plan.display_title, 'Аренда')
+        self.assertEqual(plan.title, '')
+        await self.click('pay')
+        await self.click('pay_confirm')
+        self.assertEqual(self.actual.rows[1][6], '')
+
+    async def test_create_retry_reopens_saved_card_after_lost_response(self):
+        await self.start_creation()
+        await self.text('100 Аренда')
+        self.book.batch_error_after = True
+        with self.assertLogs(level='ERROR'):
+            await self.click('skip')
+        self.assertEqual(state.get_session(101).step, 'create_retry')
+        await self.click('create_retry')
+        self.assertEqual(state.get_session(101).step, 'card')
+        self.assertEqual(len(plans.list_plans()), 1)
+
+    async def test_old_additional_comment_survives_editing_amount(self):
+        plan = plans.create_plan(creator_id=101, creator='@alice', title='Аренда',
+                                 category='Дом', subcategory='Аренда', comment='По договору')
+        await self.click('', data=f'fut:open:{plan.planned_id}')
+        self.assertIn('По договору', self.replies[-1][0])
+        await self.click('edit')
+        self.assertIn('Дополнительный комментарий',
+                      [row[0].text for row in self.replies[-1][1]['reply_markup'].inline_keyboard])
+        await self.click('amount')
+        await self.text('100')
+        await self.click('save')
+        self.assertEqual(plans.get_plan(plan.planned_id).comment, 'По договору')
 
     async def test_edit_cancel_history_and_stale_callback(self):
         p=await self.create('100','2026-11-21')
