@@ -33,6 +33,10 @@ def pop_session(user_id):
     return _sessions.pop(user_id, None)
 
 
+def clear_sessions() -> None:
+    _sessions.clear()
+
+
 def get_session(user_id):
     session = _sessions.get(user_id)
     if session and monotonic() - session.updated_at > 900:

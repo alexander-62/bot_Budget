@@ -9,6 +9,8 @@ import tkinter
 import unittest
 from unittest.mock import Mock, patch
 
+import config
+
 from services.bot_profiles import BotProfile, list_profiles, _validate
 from services.startup_validation import get_worksheet_rules, validate_worksheet_header
 from constants import PLANNED_EXPENSES_SHEET_NAME, EXPENSES_SHEET_NAME
@@ -65,10 +67,56 @@ class PlannedProfileTests(unittest.TestCase):
         google_sheets.reset_google_sheets_cache()
 
 
+    def test_telegram_toggle_checks_schema_and_keeps_profile_settings(self):
+        from services import google_sheets, planned_expenses
+        from services.bot_profiles import get_profile, set_profile_autostart
+        from planned_fakes import Sheet, Spreadsheet
+
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            personal = BotProfile('personal', 'Personal', '', legacy=True)
+            team = BotProfile('team', 'Team', 'team-sheet', 'RUB')
+            (base / 'profiles.json').write_text(
+                json.dumps({'profiles': [asdict(personal), asdict(team)]}), encoding='utf-8')
+            actual_header = ['Дата', 'Месяц', 'Пользователь', 'Категория', 'Подкатегория', 'Сумма']
+            actual = Sheet(EXPENSES_SHEET_NAME, [actual_header])
+            book = Spreadsheet(actual)
+            google_sheets.reset_google_sheets_cache()
+            self.addCleanup(google_sheets.reset_google_sheets_cache)
+            with patch.multiple(config, BASE_DIR=base, PROFILE_ID='team', PROFILE_RUNTIME_DIR=base,
+                                PLANNED_EXPENSES_ENABLED=False), \
+                 patch.object(planned_expenses, 'get_spreadsheet', return_value=book) as get_sheet:
+                with self.assertRaisesRegex(ValueError, 'expense_id'):
+                    planned_expenses.set_feature_enabled(True, expected=False)
+                self.assertEqual(get_profile('team', base), team)
+                self.assertFalse(config.PLANNED_EXPENSES_ENABLED)
+                self.assertEqual(book.worksheets(), [actual])
+
+                actual.rows[0] += ['Комментарий', 'expense_id']
+                planned_expenses.set_feature_enabled(True, expected=False)
+                self.assertTrue(config.PLANNED_EXPENSES_ENABLED)
+                self.assertEqual(get_profile('team', base), replace(team, planned_expenses_enabled=True))
+                self.assertEqual(get_profile('personal', base), personal)
+                planned = book.worksheets()[-1]
+                self.assertEqual(planned.row_values(1), list(planned_expenses.HEADERS))
+                set_profile_autostart('team', True, base_dir=base)
+                self.assertTrue(get_profile('team', base).planned_expenses_enabled)
+
+                with self.assertRaisesRegex(ValueError, 'уже изменилась'):
+                    planned_expenses.set_feature_enabled(True, expected=False)
+                get_sheet.reset_mock()
+                planned_expenses.set_feature_enabled(False, expected=True)
+                get_sheet.assert_not_called()
+                self.assertFalse(config.PLANNED_EXPENSES_ENABLED)
+                saved = get_profile('team', base)
+                self.assertTrue(saved.autostart)
+                self.assertFalse(saved.planned_expenses_enabled)
+                self.assertEqual(planned.row_values(1), list(planned_expenses.HEADERS))
+
     def test_main_menu_obeys_runtime_flag(self):
         from keyboards import main
         for flag in (False,True):
-            with patch.object(main,'PLANNED_EXPENSES_ENABLED',flag):
+            with patch.object(config, 'PLANNED_EXPENSES_ENABLED',flag):
                 labels=[b.text for row in main.build_main_menu().keyboard for b in row]
                 self.assertEqual('📅 Будущие траты' in labels,flag)
 

@@ -101,6 +101,21 @@ def _validate_google_sheets_schema() -> None:
             raise StartupValidationError(str(error)) from None
 
 
+
+def validate_planned_expenses_schema(spreadsheet, profile) -> None:
+    from services.planned_expenses import ensure_planned_sheet
+
+    rule = next(rule for rule in _WORKSHEET_RULES if rule.name == EXPENSES_SHEET_NAME)
+    worksheet = find_worksheet_case_insensitive(spreadsheet, rule.name)
+    try:
+        validate_worksheet_header(rule, worksheet.row_values(1), legacy=profile.legacy,
+                                  track_money_source=profile.track_money_source, planned_expenses_enabled=True)
+    except ValueError as error:
+        raise ValueError("Проверьте заголовки листа «Траты_по_месяцам»: в G нужен «Комментарий», "
+                         "в H — «expense_id», а при учёте источников в I — «Источник».") from error
+    ensure_planned_sheet(spreadsheet)
+
+
 def validate_worksheet_header(rule: WorksheetRule, values, *, legacy: bool, track_money_source: bool = False,
                               planned_expenses_enabled: bool = False) -> None:
     """Position-based services require header order, not merely presence."""

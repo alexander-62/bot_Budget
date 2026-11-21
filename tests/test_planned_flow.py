@@ -33,8 +33,7 @@ class PlannedFlowTests(unittest.IsolatedAsyncioTestCase):
         for module in (plans,expenses,google_sheets):
             self.stack.enter_context(patch.object(module,'get_spreadsheet',return_value=self.book))
         self.stack.enter_context(patch('services.planned_reminders.get_spreadsheet',return_value=self.book))
-        self.stack.enter_context(patch.object(plans,'PLANNED_EXPENSES_ENABLED',True))
-        self.stack.enter_context(patch.object(flow,'PLANNED_EXPENSES_ENABLED',True))
+        self.stack.enter_context(patch.object(config, 'PLANNED_EXPENSES_ENABLED', True))
         self.stack.enter_context(patch.object(plans,'today',return_value=date(2026,11,20)))
         self.stack.enter_context(patch.object(plans,'validate_category'))
         self.stack.enter_context(patch.object(flow,'get_budget_limits',return_value=('0',['Дом'])))
@@ -130,7 +129,7 @@ class PlannedFlowTests(unittest.IsolatedAsyncioTestCase):
         self.access_callback.return_value=False
         await self.click('',data='fut:open:unknown')
         self.assertEqual(len(self.ws.rows),1)
-        with patch.object(flow,'PLANNED_EXPENSES_ENABLED',False):
+        with patch.object(config, 'PLANNED_EXPENSES_ENABLED',False):
             self.access_callback.return_value=True
             await self.click('',data='fut:open:unknown')
             self.assertIn('выключены',self.alert.call_args.args[0])

@@ -113,8 +113,12 @@ class PersonalSettingsTests(unittest.TestCase):
         for profile in (profiles.BotProfile('personal', 'Personal', '', legacy=True), profiles.BotProfile('work', 'Work', 'sheet')):
             panel = SimpleNamespace(_busy=False, _saving_profile=False, selected_profile=profile,
                                     _last_status=SimpleNamespace(pid=111), _show_profile_editor=Mock())
-            ui.BudgetPanel._edit_profile(panel)
-            panel._show_profile_editor.assert_called_once_with(profile)
+            current = replace(profile, planned_expenses_enabled=True)
+            with patch.object(ui, 'get_profile', return_value=current) as load:
+                ui.BudgetPanel._edit_profile(panel)
+            load.assert_called_once_with(profile.id, ui.BASE_DIR)
+            panel._show_profile_editor.assert_called_once_with(current)
+            self.assertEqual(panel.selected_profile, current)
 
 if __name__ == '__main__':
     unittest.main()

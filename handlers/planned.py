@@ -4,7 +4,8 @@ from datetime import timedelta
 from html import escape
 
 from aiogram import Router, types
-from config import PLANNED_EXPENSES_ENABLED, TRACK_MONEY_SOURCE
+import config
+from config import TRACK_MONEY_SOURCE
 from constants import MENU_PLANNED_TEXT
 from keyboards.main import build_main_menu
 from keyboards.planned import actions
@@ -164,7 +165,7 @@ async def _accept_value(message, session, value):
 async def open_planned(message: types.Message):
     if not await check_access_message(message):
         return
-    if not PLANNED_EXPENSES_ENABLED:
+    if not config.PLANNED_EXPENSES_ENABLED:
         await message.answer('Будущие траты выключены для этого бота.')
         return
     clear_other_flows(message.from_user.id)
@@ -180,7 +181,7 @@ async def open_planned(message: types.Message):
 async def planned_callback(callback: types.CallbackQuery):
     if not await check_access_callback(callback):
         return
-    if not PLANNED_EXPENSES_ENABLED:
+    if not config.PLANNED_EXPENSES_ENABLED:
         await callback.answer('Будущие траты выключены.', show_alert=True)
         return
     if callback.message is None:
@@ -325,7 +326,7 @@ def _index(action, prefix, options):
     return int(raw)
 
 
-@router.message(lambda m: bool(PLANNED_EXPENSES_ENABLED and m.from_user and get_session(m.from_user.id)
+@router.message(lambda m: bool(config.PLANNED_EXPENSES_ENABLED and m.from_user and get_session(m.from_user.id)
                                and m.text not in NAVIGATION))
 async def planned_text(message: types.Message):
     if not await check_access_message(message):

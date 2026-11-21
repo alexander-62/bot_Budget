@@ -5,6 +5,8 @@ from zoneinfo import ZoneInfo
 import unittest
 from unittest.mock import AsyncMock, Mock, patch
 
+import config
+
 from services import planned_expenses as plans, planned_reminders as reminders, google_sheets
 from planned_fakes import Sheet, Spreadsheet
 import scheduler
@@ -20,7 +22,7 @@ class PlannedReminderTests(unittest.TestCase):
         google_sheets.reset_google_sheets_cache();self.addCleanup(google_sheets.reset_google_sheets_cache)
         for module in (plans,reminders):
             self.stack.enter_context(patch.object(module,'get_spreadsheet',return_value=self.book))
-        self.stack.enter_context(patch.object(plans,'PLANNED_EXPENSES_ENABLED',True))
+        self.stack.enter_context(patch.object(config, 'PLANNED_EXPENSES_ENABLED',True))
         self.stack.enter_context(patch.object(plans,'validate_category'))
 
     def create(self,**kwargs):
@@ -110,7 +112,7 @@ class PlannedSchedulerTests(unittest.IsolatedAsyncioTestCase):
     async def test_failed_send_retries_and_only_success_marks_delivered(self):
         job=reminders.ReminderJob(101,'text',(('id','rev','day:2026-11-20'),),('title',))
         bot=Mock(send_message=AsyncMock(side_effect=[RuntimeError('Telegram down'),None]))
-        with patch.object(scheduler,'PLANNED_EXPENSES_ENABLED',True), \
+        with patch.object(config, 'PLANNED_EXPENSES_ENABLED',True), \
              patch.object(reminders,'build_reminder_jobs',return_value=[job]), \
              patch.object(reminders,'mark_delivered') as mark, \
              patch('services.budget_settings.settings_initialized',return_value=False):
@@ -121,7 +123,7 @@ class PlannedSchedulerTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(bot.send_message.call_args.kwargs['reply_markup'].inline_keyboard[0][0].callback_data,'fut:open:id')
 
     async def test_disabled_flag_skips_all_io(self):
-        with patch.object(scheduler,'PLANNED_EXPENSES_ENABLED',False),patch.object(reminders,'build_reminder_jobs') as build:
+        with patch.object(config, 'PLANNED_EXPENSES_ENABLED',False),patch.object(reminders,'build_reminder_jobs') as build:
             self.assertEqual(await scheduler.send_due_planned_reminders(Mock()),0)
             build.assert_not_called()
 
